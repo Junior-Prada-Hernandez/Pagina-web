@@ -57,7 +57,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 // ========== OBTENER API KEYS DEL BACKEND ==========
 async function obtenerApiKeysDelBackend() {
     try {
-        const response = await fetch('http://localhost:8002/api/keys');
+        const response = await fetch('https://pagina-web-2p69.onrender.com/api/keys');
         
         if (!response.ok) {
             throw new Error('Error al obtener API keys del backend');
@@ -431,4 +431,5 @@ function resetForm() {
     savePlantBtn.style.display = 'none';
     currentPlantData = null;
     currentPlantImage = null;
+
 }
