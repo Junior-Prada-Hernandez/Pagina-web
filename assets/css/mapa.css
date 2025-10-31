@@ -1,0 +1,57 @@
+body { 
+  margin: 0; 
+  padding: 0; 
+  font-family: sans-serif; 
+  background-color: black; 
+  color: white; 
+}
+
+#map { 
+  width: 100vw; 
+  height: 100vh; 
+}
+
+.mapboxgl-popup-content {
+  border-radius: 10px;
+  max-width: 300px;
+}
+
+.mapboxgl-popup-content img {
+  width: 100%;
+  border-radius: 5px;
+  margin-bottom: 10px;
+}
+
+/* Estilos para los controles del mapa */
+.mapboxgl-ctrl-top-right {
+  top: 10px;
+  right: 10px;
+}
+
+.mapboxgl-ctrl-group {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+}
+
+.mapboxgl-ctrl-group button {
+  width: 30px;
+  height: 30px;
+}
+
+/* Loading indicator */
+.loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 20px;
+  border-radius: 10px;
+  z-index: 1000;
+  display: none;
+}
+
+.loading.show {
+  display: block;
+}

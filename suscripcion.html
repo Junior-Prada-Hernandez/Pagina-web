@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Suscripción 🌱 Cuenca Alta del Río Ubaté</title>
+  
+  <!-- EmailJS -->
+  <script src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
+  
+  <!-- Nuestros estilos -->
+  <link rel="stylesheet" href="assets/css/suscripcion.css">
+</head>
+<body>
+  <!-- Botón de navegación en esquina superior derecha -->
+  <nav class="navigation-buttons">
+    <a href="index.html" class="nav-btn">
+      <span>🏠 Inicio</span>
+    </a>
+    <a href="login.html" class="nav-btn">
+      <span>👨‍💼 Admin</span>
+    </a>
+  </nav>
+
+  <!-- Contenido principal -->
+  <div class="container">
+    <div class="header">
+      <div class="logo">
+        <span class="leaf-icon">🌿</span>
+        <h1>Cuenca Ubaté</h1>
+      </div>
+      <p class="subtitle">Únete a nuestra comunidad</p>
+    </div>
+
+    <div class="card">
+      <h2>Mantente Informado</h2>
+      <p class="description">
+        Suscríbete para recibir notificaciones sobre nuevas publicaciones, 
+        descubrimientos de plantas y eventos en la Cuenca Alta del Río Ubaté.
+      </p>
+
+      <form id="form" class="subscription-form">
+        <div class="input-group">
+          <input type="text" id="name" placeholder=" " required />
+          <label for="name">Tu nombre completo</label>
+          <div class="input-icon">👤</div>
+        </div>
+
+        <div class="input-group">
+          <input type="email" id="email" placeholder=" " required />
+          <label for="email">Tu correo electrónico</label>
+          <div class="input-icon">📧</div>
+        </div>
+
+        <button type="submit" class="submit-btn">
+          <span class="btn-text">Suscribirme ahora</span>
+          <span class="btn-icon">🌱</span>
+        </button>
+      </form>
+
+      <div class="benefits">
+        <h3>✨ Lo que recibirás:</h3>
+        <ul>
+          <li>📰 Notificaciones de nuevas publicaciones</li>
+          <li>🌿 Descubrimientos de plantas y animales</li>
+          <li>🔔 Alertas importantes</li>
+        </ul>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <p>© 2024 Cuenca Alta del Río Ubaté - Conservando nuestra biodiversidad</p>
+    </footer>
+  </div>
+
+  <!-- Nuestro JavaScript -->
+  <script src="assets/js/suscripcion.js"></script>
+</body>
+</html>

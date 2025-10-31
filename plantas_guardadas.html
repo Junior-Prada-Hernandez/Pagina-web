@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administración de Imágenes - Cuenca Ubate</title>
+    
+    <!-- BOOTSTRAP CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- FONT AWESOME -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- EMAILJS -->
+    <script src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
+    <script>
+        (function() {
+            emailjs.init("2KftwDvFRfdM9n8Si");
+        })();
+    </script>
+    
+    <!-- HOJA DE ESTILOS PERSONALIZADA -->
+    <link rel="stylesheet" href="assets/css/plantas_guardadas.css">
+</head>
+<body>
+    <!-- ============================================= -->
+    <!-- BARRA DE NAVEGACIÓN -->
+    <!-- ============================================= -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-cogs me-2"></i>Panel de Administración
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="galeria_completa.html">
+                    <i class="fas fa-eye me-1"></i> Ver Galería Pública
+                </a>
+                <a class="nav-link" href="mapa.html">
+                    <i class="fas fa-map-marked-alt me-1"></i> Ver Mapa
+                </a>
+                <a class="nav-link" href="login.html">
+                    <i class="fas fa-sign-out-alt me-1"></i> Cerrar Sesión
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ============================================= -->
+    <!-- CONTENIDO PRINCIPAL -->
+    <!-- ============================================= -->
+    <div class="container mt-4">
+        <!-- ============================================= -->
+        <!-- PANEL DE NOTIFICACIONES -->
+        <!-- ============================================= -->
+        <div class="notification-panel">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <h5><i class="fas fa-bell me-2"></i>Notificaciones por Email</h5>
+                    <p class="mb-0" id="contadorSuscriptores">
+                        <!-- Se actualiza automáticamente -->
+                    </p>
+                </div>
+                <div class="col-md-6 text-end">
+                    <div class="btn-group">
+                        <button class="btn btn-warning btn-lg" id="notificarTodosBtn">
+                            <i class="fas fa-paper-plane me-2"></i>Notificar
+                        </button>
+                        <button class="btn btn-secondary btn-lg" id="gestionarSuscriptoresBtn" title="Gestionar suscriptores">
+                            <i class="fas fa-users me-2"></i>Gestionar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================= -->
+        <!-- ESTADÍSTICAS -->
+        <!-- ============================================= -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stats-card stats-total">
+                    <div class="h4" id="totalImagenes">0</div>
+                    <small>Total Imágenes</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card stats-publicada">
+                    <div class="h4" id="publicadasCount">0</div>
+                    <small>Publicadas</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card stats-pendiente">
+                    <div class="h4" id="pendientesCount">0</div>
+                    <small>Pendientes</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card stats-rechazada">
+                    <div class="h4" id="rechazadasCount">0</div>
+                    <small>Rechazadas</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================= -->
+        <!-- FILTROS Y BÚSQUEDA -->
+        <!-- ============================================= -->
+        <div class="admin-panel p-4 mb-4">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <input type="text" class="form-control" id="searchInput" placeholder="Buscar...">
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" id="filterEstado">
+                        <option value="todas">Todos los estados</option>
+                        <option value="publicada">Publicadas</option>
+                        <option value="pendiente">Pendientes</option>
+                        <option value="rechazada">Rechazadas</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" id="sortSelect">
+                        <option value="nuevas">Más recientes</option>
+                        <option value="antiguas">Más antiguas</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary w-100" id="recargarBtn">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================= -->
+        <!-- INDICADOR DE CARGA -->
+        <!-- ============================================= -->
+        <div class="loading" id="loading">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+            <p class="mt-2">Cargando imágenes...</p>
+        </div>
+
+        <!-- ============================================= -->
+        <!-- CONTENEDOR DE IMÁGENES -->
+        <!-- ============================================= -->
+        <div class="row" id="imagenesContainer">
+            <!-- Las imágenes se cargarán aquí dinámicamente -->
+        </div>
+
+        <!-- ============================================= -->
+        <!-- ESTADO VACÍO -->
+        <!-- ============================================= -->
+        <div class="text-center py-5" id="emptyState" style="display: none;">
+            <i class="fas fa-images fa-3x text-muted mb-3"></i>
+            <h4 class="text-muted">No hay imágenes</h4>
+            <p class="text-muted">No se encontraron imágenes con los filtros aplicados.</p>
+        </div>
+    </div>
+
+    <!-- ============================================= -->
+    <!-- MODAL EDITAR IMAGEN -->
+    <!-- ============================================= -->
+    <div class="modal fade" id="editarModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">Editar Imagen</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editarForm">
+                        <input type="hidden" id="editImageId">
+                        <div class="mb-3">
+                            <label class="form-label">Nombre de la Planta</label>
+                            <input type="text" class="form-control" id="editTitulo" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Descripción</label>
+                            <textarea class="form-control" id="editDescripcion" rows="3"></textarea>
+                        </div>
+                        
+                        <!-- 🆕 NUEVO CAMPO: TIPO DE PUBLICACIÓN -->
+                        <div class="mb-3">
+                            <label class="form-label">¿Dónde publicar esta imagen?</label>
+                            <select class="form-select" id="editTipoPublicacion">
+                                <option value="galeria">📷 Solo en Galería de Plantas</option>
+                                <option value="noticias">📰 En Sección de Noticias (Inicio)</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                • <strong>Galería:</strong> Solo visible en la galería completa<br>
+                                • <strong>Noticias:</strong> Visible en la página de inicio como noticia
+                            </small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Coordenadas (Latitud, Longitud)</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="editLatitud" placeholder="Latitud">
+                                <input type="text" class="form-control" id="editLongitud" placeholder="Longitud">
+                            </div>
+                            <small class="form-text text-muted">Ejemplo: 5.3167, -73.8167</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="guardarEdicionBtn">Guardar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================= -->
+    <!-- SCRIPTS EXTERNOS -->
+    <!-- ============================================= -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/js/plantas_guardadas.js"></script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <!-- METADATOS BÁSICOS -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Identificador de Plantas - Cuenca Ubaté</title>
+    
+    <!-- HOJAS DE ESTILO EXTERNAS -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    
+    <!-- HOJA DE ESTILOS PROPIA -->
+    <link rel="stylesheet" href="assets/css/identificador-plantas.css">
+</head>
+<body>
+    <!-- ========== MENÚ DE RETORNO AL INICIO ========== -->
+    <div class="return-menu">
+        <a href="bienvenido.html" class="return-link">
+            <i class="fas fa-arrow-left"></i>
+            Volver al Inicio
+        </a>
+    </div>
+
+    <!-- ========== CABECERA PRINCIPAL ========== -->
+    <header>
+        <div class="header-content">
+            <div class="logo">
+                <i class="fas fa-leaf"></i>
+                <span>Plantas Cuenca Ubaté</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ========== CONTENIDO PRINCIPAL ========== -->
+    <main class="container">
+        <section class="hero">
+            <h1>Identificador de Plantas</h1>
+            <p>Sube una foto de cualquier planta de la Cuenca Ubaté y obtén información detallada</p>
+        </section>
+
+        <div class="card">
+            <!-- Área para subir imágenes -->
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                </div>
+                <p class="upload-text"><strong>Haz clic para subir una imagen</strong> o arrástrala y suéltala aquí</p>
+                <p class="upload-text">Formatos soportados: JPG, PNG, WEBP</p>
+                <input type="file" id="fileInput" accept="image/*">
+                <button class="btn" onclick="document.getElementById('fileInput').click()">
+                    <i class="fas fa-folder-open"></i> Seleccionar imagen
+                </button>
+            </div>
+
+            <!-- Contenedor para la vista previa de la imagen -->
+            <div class="preview-container">
+                <img id="previewImage" class="preview-image" alt="Vista previa de la imagen">
+            </div>
+
+            <!-- Botones de acción -->
+            <div class="action-buttons">
+                <button id="identifyBtn" class="btn" disabled onclick="identifyPlant()">
+                    <i class="fas fa-search"></i> Identificar planta
+                </button>
+                <button id="saveWithoutIdentifyBtn" class="btn btn-save" disabled onclick="saveWithoutIdentification()">
+                    <i class="fas fa-save"></i> Guardar sin identificar
+                </button>
+                <button class="btn btn-secondary" onclick="resetForm()">
+                    <i class="fas fa-redo"></i> Limpiar
+                </button>
+            </div>
+
+            <!-- Indicador de carga -->
+            <div class="loading" id="loading">
+                <div class="loading-spinner"></div>
+                <p>Analizando tu planta...</p>
+            </div>
+
+            <!-- Mensaje de error -->
+            <div class="error-message" id="errorMessage">
+                <i class="fas fa-exclamation-circle"></i>
+                <span id="errorText"></span>
+            </div>
+            
+            <!-- Mensaje de éxito -->
+            <div class="success-message" id="successMessage">
+                <i class="fas fa-check-circle"></i>
+                <span id="successText"></span>
+            </div>
+
+            <!-- Contenedor de resultados -->
+            <div class="result-container" id="resultContainer">
+                <div class="result-header">
+                    <div class="result-icon">
+                        <i class="fas fa-seedling"></i>
+                    </div>
+                    <h2>Resultados de identificación</h2>
+                </div>
+
+                <h3 class="plant-name" id="plantName"></h3>
+                <div class="probability" id="probability"></div>
+                
+                <div class="common-names" id="commonNames">
+                    <i class="fas fa-tags"></i>
+                    <span id="commonNamesText"></span>
+                </div>
+
+                <div class="details-section">
+                    <h3><i class="fas fa-info-circle"></i> Descripción generada por IA</h3>
+                    <div class="details-content" id="plantDetails"></div>
+                    
+                    <div class="sources">
+                        <div class="sources-title">Fuentes consultadas:</div>
+                        <div id="sourceLinks"></div>
+                        <p style="margin-top: 1rem; font-size: 0.8rem; color: var(--gray);">
+                            Información recopilada de bases de datos botánicas de la región Cuenca Ubaté
+                        </p>
+                    </div>
+                </div>
+
+                <div class="action-buttons" style="margin-top: 2rem;">
+                    <button id="savePlantBtn" class="btn" onclick="savePlant()" style="display: none;">
+                        <i class="fas fa-save"></i> Guardar en Mis Plantas
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ========== PIE DE PÁGINA ========== -->
+    <footer>
+        <div class="footer-content">
+            <div class="footer-logo">
+                <i class="fas fa-leaf"></i>
+                <span>Plantas Cuenca Ubaté</span>
+            </div>
+            <div class="footer-links">
+                <a href="identificador-plantas.html" class="footer-link">Identificar</a>
+                <a href="guardar-plantas.html" class="footer-link">Mis Plantas</a>
+            </div>
+            <p class="copyright">Datos botánicos recopilados de fuentes especializadas de la región Cuenca Ubaté</p>
+        </div>
+    </footer>
+
+    <!-- ========== SCRIPTS JAVASCRIPT ========== -->
+    <script src="assets/js/identificador-plantas.js"></script>
+</body>
+</html>

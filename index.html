@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cuenca Alta del Río de Ubaté</title>
+    <!-- CSS -->
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;700&display=swap" rel="stylesheet">
+    <link href='https://unpkg.com/boxicons@2.0.5/css/boxicons.min.css' rel='stylesheet'>
+</head>
+<body>
+    <!-- Menú de navegación -->
+    <header class="header">
+        <nav class="nav">
+            <a href="bienvenido.html" class="logo">Cuenca Ubaté</a>
+            <ul class="nav-menu">
+                <li class="nav-item"><a href="#Inicio" class="nav-link">Inicio</a></li>
+                <li class="nav-item"><a href="#Mapa" class="nav-link">Mapa</a></li>
+                <li class="nav-item"><a href="#Galeria" class="nav-link">Galería</a></li>
+                <li class="nav-item"><a href="#Noticias" class="nav-link">Noticias</a></li>
+                <li class="nav-item"><a href="#Biodiversidad" class="nav-link">Videos</a></li>
+                <li class="nav-item"><a href="identificador-plantas.html" class="nav-link">Identificación de Plantas</a></li>
+                <li class="nav-item"><a href="suscripcion.html" class="nav-link">Suscribirme</a></li>
+                <li class="nav-item"><a href="contactos.html" class="nav-link">Creadores</a></li>
+            </ul>
+            <div class="hamburguer">
+                <i class='bx bx-menu'></i>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Carrusel -->
+    <section id="Inicio" class="carousel">
+        <div class="carousel-inner">
+            <div class="carousel-item active">
+                <img src="assets/img/imagen1.jpeg" alt="Imagen 1">
+                <div class="carousel-caption">
+                    <h3>Cuenca alta del río Ubaté</h3>
+                    <p>Una ventana a la naturaleza local</p>
+                </div>
+            </div>
+            <div class="carousel-item">
+                <img src="assets/img/imagen2.jpeg" alt="Imagen 2">
+                <div class="carousel-caption">
+                    <h3>Cuenca alta del río Ubaté</h3>
+                    <p>Una ventana a la naturaleza local</p>
+                </div>
+            </div>
+            <div class="carousel-item">
+                <img src="assets/img/imagen3.jpeg" alt="Imagen 3">
+                <div class="carousel-caption">
+                    <h3>Cuenca alta del río Ubaté</h3>
+                    <p>Una ventana a la naturaleza local</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Sección del Mapa -->
+    <section class="services contenedor" id="Mapa">
+        <div class="plant-decoration section-plant"></div>
+        <h2 class="subtitulo">Mapa</h2>
+        <div class="contenedor-servicio">
+            <div class="mapa-container">
+                <a href="mapa.html" target="_blank">
+                    <img src="assets/img/mapa.PNG" alt="Mapa Cuenca Ubaté" class="mapa-imagen">
+                </a>
+            </div>
+            <div class="checklist-servicio">
+                <div class="service">
+                    <h3 class="n-service"><span class="number">1</span>¿Sabías qué?
+                        <button class="audio-player" data-audio="assets/img/audio1.mp3">
+                            <i class='bx bx-play-circle'></i>
+                            <i class='bx bx-pause-circle'></i>
+                        </button>
+                    </h3>
+                    <p>La cuenca del río de Ubaté se encuentra localizada en los departamentos de Cundinamarca y Boyacá y cuenta con una extensión de 991,65 km²</p>
+                </div>
+                <div class="service">
+                    <h3 class="n-service"><span class="number">2</span>¿Sabías qué?
+                        <button class="audio-player" data-audio="assets/img/audio2.mp3">
+                            <i class='bx bx-play-circle'></i>
+                            <i class='bx bx-pause-circle'></i>
+                        </button>
+                    </h3>
+                    <p>El viaje del río Ubaté es un recorrido fascinante por montañas escarpadas, planicies ondulantes y terrenos casi planos.</p>
+                </div>
+                <div class="service">
+                    <h3 class="n-service"><span class="number">3</span>¿Sabías qué?
+                        <button class="audio-player" data-audio="assets/img/audio3.mp3">
+                            <i class='bx bx-play-circle'></i>
+                            <i class='bx bx-pause-circle'></i>
+                        </button>
+                    </h3>
+                    <p>La cuenca del río Ubaté pertenece a la cuenca hidrográfica del río Magdalena, y la subcuenca del río Sogamoso.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Galería Modificada -->
+    <section class="gallery" id="Galeria">
+        <div class="plant-decoration gallery-plant"></div>
+        <div class="contenedor">
+            <h2 class="subtitulo">Galería</h2>
+            <div class="contenedor-galeria centered-gallery" id="imageGallery">
+                <!-- Las 3 últimas imágenes se cargarán aquí dinámicamente -->
+            </div>
+            <!-- Enlace a galería completa -->
+            <div class="view-more">
+                <a href="galeria_completa.html">Ver más Imagenes</a>
+            </div>
+        </div>
+    </section>
+
+<!-- Sección de Noticias -->
+<section class="news contenedor" id="Noticias">
+    <div class="plant-decoration news-plant"></div>
+    <h2 class="subtitulo">Noticias de la Cuenca</h2>
+    <div class="noticias-container" id="noticiasContainer">
+        <!-- Las noticias se cargarán aquí dinámicamente como carrusel -->
+    </div>
+</section>
+
+    <!-- Lightbox -->
+    <div class="imagen-light">
+        <img src="img/close.svg" alt="Cerrar" class="close">
+        <img src="" alt="" class="agregar-imagen">
+        <div class="image-info">
+            <h3 class="image-title"></h3>
+            <p class="image-description"></p>
+        </div>
+    </div>
+
+    <!-- Videos -->
+    <section class="contenedor" id="Biodiversidad">
+        <div class="plant-decoration video-plant"></div>
+        <h2 class="subtitulo">Videos</h2>
+        <section class="experts">
+            <div class="cont-expert">
+                <video src="assets/img/video1.mp4" controls width="100%"></video>
+            </div>
+            <div class="cont-expert">
+                <video src="assets/img/video2.mp4" controls width="100%"></video>
+            </div>
+            <div class="cont-expert">
+                <video src="assets/img/video3.mp4" controls width="100%"></video>
+            </div>
+        </section>
+    </section>
+
+    <!-- Footer -->
+    <footer id="contactos" class="footer-green">
+        <div class="footer-content">
+            <div class="contact-info">
+                <div class="names-container">
+                    <div class="contact-link">
+                        <a href="contactos.html" class="btn-creadores">Conoce a los Creadores</a>
+                    </div>
+                </div>
+                <div class="tagline">
+                    <p class="slogan">Cuenca Alta Del Río Ubaté, Una Ventana a la Naturaleza Local</p>
+                </div>
+            </div>
+            <div class="plant-decoration footer-plant"></div>
+        </div>
+        <div class="line"></div>
+    </footer>
+
+    <script src="assets/js/inicio.js" defer></script>
+</body>
+</html>

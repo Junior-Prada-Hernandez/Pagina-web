@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Admin | Cuenca Ubaté</title>
+    
+    <!-- HOJA DE ESTILOS EXTERNA -->
+    <link rel="stylesheet" href="assets/css/login.css">
+</head>
+<body>
+    <!-- ============================================= -->
+    <!-- CONTENEDOR PRINCIPAL DEL LOGIN -->
+    <!-- ============================================= -->
+    <div class="login-container">
+        <div class="logo">
+            🌿 Cuenca Ubaté - Admin
+        </div>
+        
+        <!-- ============================================= -->
+        <!-- FORMULARIO DE LOGIN -->
+        <!-- ============================================= -->
+        <div class="input-group">
+            <label for="username">Usuario</label>
+            <input type="text" id="username" placeholder="Ingrese su usuario" required>
+        </div>
+
+        <div class="input-group">
+            <label for="password">Contraseña</label>
+            <input type="password" id="password" placeholder="Ingrese su contraseña">
+        </div>
+
+        <button class="login-btn" id="loginBtn">Ingresar</button>
+        
+        <div class="change-password" id="changePasswordBtn">
+            Cambiar contraseña
+        </div>
+
+        <!-- ============================================= -->
+        <!-- MENSAJES DE ESTADO -->
+        <!-- ============================================= -->
+        <div id="message"></div>
+    </div>
+
+    <!-- ============================================= -->
+    <!-- MODAL PARA CAMBIAR CONTRASEÑA -->
+    <!-- ============================================= -->
+    <div class="modal" id="passwordModal">
+        <div class="modal-content">
+            <span class="close" id="closeModalBtn">&times;</span>
+            <h3>Cambiar Contraseña</h3>
+            
+            <div class="input-group">
+                <label for="changePasswordUsername">Usuario</label>
+                <input type="text" id="changePasswordUsername" placeholder="Ingrese su usuario">
+            </div>
+
+            <div class="input-group">
+                <label for="currentPassword">Contraseña actual</label>
+                <input type="password" id="currentPassword">
+            </div>
+
+            <div class="input-group">
+                <label for="newPassword">Nueva contraseña</label>
+                <input type="password" id="newPassword">
+            </div>
+
+            <div class="input-group">
+                <label for="confirmPassword">Confirmar nueva contraseña</label>
+                <input type="password" id="confirmPassword">
+            </div>
+
+            <button class="login-btn" id="changePasswordSubmitBtn">Cambiar Contraseña</button>
+            <div id="modalMessage"></div>
+        </div>
+    </div>
+
+    <!-- ============================================= -->
+    <!-- SCRIPTS EXTERNOS -->
+    <!-- ============================================= -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- EmailJS SDK -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+    <script src="assets/js/login.js"></script>
+</body>
+</html>
