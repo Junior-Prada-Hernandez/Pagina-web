@@ -20,8 +20,8 @@ load_dotenv()
 app = FastAPI(title="Cuenca Ubate API", version="1.0.0")
 
 # SERVIR ARCHIVOS ESTÁTICOS (NUEVO - PARA QUE FUNCIONEN LAS PÁGINAS HTML)
-app.mount("/assets", StaticFiles(directory="../assets"), name="assets")
-app.mount("/", StaticFiles(directory="..", html=True), name="html")
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+app.mount("/", StaticFiles(directory=".", html=True), name="html")
 
 # =============================================================================
 # CONFIGURACIÓN CORS
