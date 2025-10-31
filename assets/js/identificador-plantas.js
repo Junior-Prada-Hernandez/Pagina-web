@@ -1,5 +1,8 @@
 // assets/js/identificador-plantas.js
 
+// 🔥 CAMBIA ESTA CONSTANTE - AGREGA EL PUERTO :10000
+const API_BASE = 'https://pagina-web-2p69.onrender.com:10000';
+
 // Variables para las API keys (se obtendrán del backend)
 let PLANT_ID_API_KEY = null;
 let DEEPSEEK_API_KEY = null;
@@ -57,7 +60,8 @@ document.addEventListener('DOMContentLoaded', async function() {
 // ========== OBTENER API KEYS DEL BACKEND ==========
 async function obtenerApiKeysDelBackend() {
     try {
-        const response = await fetch('https://pagina-web-2p69.onrender.com/api/keys');
+        // 🔥 CAMBIA ESTA URL - USA API_BASE
+        const response = await fetch(`${API_BASE}/api/keys`);
         
         if (!response.ok) {
             throw new Error('Error al obtener API keys del backend');
@@ -157,7 +161,8 @@ async function identifyPlant() {
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         
-        const plantIdResponse = await fetch('https://pagina-web-2p69.onrender.com/identify-plant', {
+        // 🔥 CAMBIA ESTA URL - USA API_BASE
+        const plantIdResponse = await fetch(`${API_BASE}/identify-plant`, {
             method: 'POST',
             body: formData
         });
@@ -299,7 +304,8 @@ async function saveWithoutIdentification() {
         formData.append('nombre_usuario', 'usuario_web');
         formData.append('description', 'Planta sin identificar - guardada desde la galería');
         
-        const response = await fetch('https://pagina-web-2p69.onrender.com/upload', {
+        // 🔥 CAMBIA ESTA URL - USA API_BASE
+        const response = await fetch(`${API_BASE}/upload`, {
             method: 'POST',
             body: formData
         });
@@ -363,7 +369,8 @@ async function savePlant() {
         formData.append('nombre_usuario', 'usuario_web');
         formData.append('description', `Planta identificada: ${currentPlantData.species.scientificName}`);
         
-        const response = await fetch('https://pagina-web-2p69.onrender.com/upload', {
+        // 🔥 CAMBIA ESTA URL - USA API_BASE
+        const response = await fetch(`${API_BASE}/upload`, {
             method: 'POST',
             body: formData
         });
