@@ -548,15 +548,14 @@ async def get_api_keys():
 if __name__ == "__main__":
     import uvicorn
     
+    port = int(os.getenv("PORT", 8002))  # ✅ Render usa la variable $PORT
+    
     print("\n" + "="*60)
     print("🚀 INICIANDO SERVIDOR FASTAPI - CUENCA UBATÉ")
     print("="*60)
-    print("🌐 URL: http://localhost:8002")
-    print("📚 Documentación: http://localhost:8002/docs") 
-    print("❤️  Health Check: http://localhost:8002/health")
-    print("🔐 Login: http://localhost:8002/login")
-    print("🔍 Identificar Plantas: http://localhost:8002/identify-plant")
-    print("🗺️  Map Images: http://localhost:8002/map-images")
-    print("📰 Noticias Images: http://localhost:8002/imagenes-noticias")
-    print("📧 Suscripciones: http://localhost:8002/suscribir")
-    uvicorn.run(app, host="0.0.0.0", port=8002)
+    print(f"🌐 URL: http://0.0.0.0:{port}")
+    print(f"📚 Documentación: http://0.0.0.0:{port}/docs") 
+    print("❤️  Health Check: /health")
+    print("🔐 Login: /login")
+    print("🔍 Identificar Plantas: /identify-plant")
+    uvicorn.run(app, host="0.0.0.0", port=port)
