@@ -154,7 +154,7 @@ async function identifyPlant() {
     
     try {
         // 1. Identificar la planta con Plant.id API
-        const plantIdResponse = await fetch('https://my-api.plantnet.org/v2/identify/all?api-key=' + PLANT_ID_API_KEY, {
+       const plantIdResponse = await fetch('https://pagina-web-2p69.onrender.com/identify-plant', {
             method: 'POST',
             body: (() => {
                 const formData = new FormData();
@@ -433,5 +433,6 @@ function resetForm() {
     currentPlantImage = null;
 
 }
+
 
 
