@@ -1,7 +1,7 @@
 // assets/js/galeria.js
 
 // ========== CONFIGURACIÓN ==========
-const API_BASE = 'http://localhost:8002';
+const API_BASE = 'https://pagina-web-2p69.onrender.com';
 let todasLasImagenes = [];
 let imagenesFiltradas = [];
 let imagenActualIndex = 0;
@@ -281,4 +281,5 @@ window.recargarGaleria = function() {
 
 window.limpiarBusqueda = limpiarBusqueda;
 window.navegarImagen = navegarImagen;
+
 window.abrirModal = abrirModal;
