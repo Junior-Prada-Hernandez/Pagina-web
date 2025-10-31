@@ -16,7 +16,7 @@
 // =============================================
 // CONFIGURACIÓN GLOBAL
 // =============================================
-const API_BASE = 'http://localhost:8002';
+const API_BASE = 'https://pagina-web-2p69.onrender.com';
 let todasLasImagenes = [];
 let todosLosSuscriptores = [];
 
@@ -846,4 +846,5 @@ function cerrarProgresoNotificacion(toast) {
             toast.parentNode.removeChild(toast);
         }
     }, 2000);
+
 }
