@@ -301,7 +301,7 @@ async function saveWithoutIdentification() {
         formData.append('nombre_usuario', 'usuario_web');
         formData.append('description', 'Planta sin identificar - guardada desde la galería');
         
-        const response = await fetch('http://localhost:8002/upload', {
+        const response = await fetch('https://pagina-web-2p69.onrender.com/upload', {
             method: 'POST',
             body: formData
         });
@@ -433,3 +433,4 @@ function resetForm() {
     currentPlantImage = null;
 
 }
+
