@@ -153,9 +153,9 @@ async function identifyPlant() {
     savePlantBtn.style.display = 'none';
     
     try {
-        // 1. Identificar la planta con Plant.id API - CORREGIDO
+        // 1. Identificar la planta con nuestro backend
         const formData = new FormData();
-        formData.append('file', fileInput.files[0]); // Cambiado de 'images' a 'file'
+        formData.append('file', fileInput.files[0]);
         
         const plantIdResponse = await fetch('https://pagina-web-2p69.onrender.com/identify-plant', {
             method: 'POST',
@@ -165,7 +165,7 @@ async function identifyPlant() {
         const plantIdData = await plantIdResponse.json();
         
         if (!plantIdResponse.ok) {
-            throw new Error(plantIdData.error || 'Error al identificar la planta');
+            throw new Error(plantIdData.detail || 'Error al identificar la planta');
         }
         
         if (!plantIdData.results || plantIdData.results.length === 0) {
