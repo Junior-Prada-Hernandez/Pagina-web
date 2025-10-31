@@ -153,15 +153,13 @@ async function identifyPlant() {
     savePlantBtn.style.display = 'none';
     
     try {
-        // 1. Identificar la planta con Plant.id API
-       const plantIdResponse = await fetch('https://pagina-web-2p69.onrender.com/identify-plant', {
+        // 1. Identificar la planta con Plant.id API - CORREGIDO
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]); // Cambiado de 'images' a 'file'
+        
+        const plantIdResponse = await fetch('https://pagina-web-2p69.onrender.com/identify-plant', {
             method: 'POST',
-            body: (() => {
-                const formData = new FormData();
-                formData.append('images', fileInput.files[0]);
-                formData.append('organs', 'auto');
-                return formData;
-            })()
+            body: formData
         });
         
         const plantIdData = await plantIdResponse.json();
@@ -431,8 +429,4 @@ function resetForm() {
     savePlantBtn.style.display = 'none';
     currentPlantData = null;
     currentPlantImage = null;
-
 }
-
-
-
