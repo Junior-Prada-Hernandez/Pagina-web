@@ -14,7 +14,7 @@ async function cargarUltimasImagenes() {
         </div>`;
     
     try {
-        const response = await fetch('http://localhost:8002/list-images');
+        const response = await fetch('https://pagina-web-2p69.onrender.com/list-images');
         const data = await response.json();
         
         if (data.images && data.images.length > 0) {
@@ -403,4 +403,5 @@ document.addEventListener('DOMContentLoaded', function() {
 // Limpiar intervalos cuando la página se cierre
 window.addEventListener('beforeunload', () => {
     clearInterval(carouselInterval);
+
 });
