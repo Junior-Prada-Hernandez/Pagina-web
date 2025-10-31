@@ -2,6 +2,7 @@ from typing import Union, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from supabase import create_client, Client
 import os
 from dotenv import load_dotenv
@@ -11,6 +12,7 @@ import requests
 from passlib.context import CryptContext
 from datetime import timedelta
 from jose import JWTError, jwt
+from pathlib import Path
 
 # =============================================================================
 # CONFIGURACIÓN INICIAL
@@ -18,10 +20,6 @@ from jose import JWTError, jwt
 
 load_dotenv()
 app = FastAPI(title="Cuenca Ubate API", version="1.0.0")
-
-# SERVIR ARCHIVOS ESTÁTICOS (NUEVO - PARA QUE FUNCIONEN LAS PÁGINAS HTML)
-app.mount("/assets", StaticFiles(directory="../assets"), name="assets")
-app.mount("/", StaticFiles(directory=".", html=True), name="html")
 
 # =============================================================================
 # CONFIGURACIÓN CORS
@@ -97,21 +95,51 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
         return None
 
 # =============================================================================
+# SERVIR ARCHIVOS ESTÁTICOS - CORREGIDO PARA RENDER
+# =============================================================================
+
+# Rutas para servir archivos HTML y estáticos
+BASE_DIR = Path(__file__).parent.parent
+
+@app.get("/")
+async def read_root():
+    return FileResponse(BASE_DIR / "index.html")
+
+@app.get("/{page_name}")
+async def serve_page(page_name: str):
+    valid_pages = {
+        "identificador-plantas.html", "galeria_completa.html", 
+        "plantas_guardadas.html", "suscripcion.html", "contactos.html",
+        "login.html", "bienvenido.html", "index.html", "mapa.html"
+    }
+    
+    if page_name in valid_pages:
+        file_path = BASE_DIR / page_name
+        if file_path.exists():
+            return FileResponse(file_path)
+    
+    # Si no es una página válida, devolver el index
+    return FileResponse(BASE_DIR / "index.html")
+
+@app.get("/assets/{file_path:path}")
+async def serve_assets(file_path: str):
+    assets_path = BASE_DIR / "assets" / file_path
+    if assets_path.exists():
+        return FileResponse(assets_path)
+    raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+# =============================================================================
 # ENDPOINTS BÁSICOS
 # =============================================================================
 
-@app.get("/")
-def read_root():
+@app.get("/api/health")
+def health_check():
     return {
-        "message": "API Cuenca Ubate funcionando", 
-        "status": "online",
+        "status": "healthy", 
         "timestamp": datetime.now().isoformat(),
+        "service": "Cuenca Ubate API",
         "database": "connected" if supabase else "disconnected"
     }
-
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 # =============================================================================
 # IDENTIFICACIÓN DE PLANTAS
@@ -548,14 +576,14 @@ async def get_api_keys():
 if __name__ == "__main__":
     import uvicorn
     
-    port = int(os.getenv("PORT", 8002))  # ✅ Render usa la variable $PORT
+    port = int(os.getenv("PORT", 8000))
     
     print("\n" + "="*60)
     print("🚀 INICIANDO SERVIDOR FASTAPI - CUENCA UBATÉ")
     print("="*60)
     print(f"🌐 URL: http://0.0.0.0:{port}")
     print(f"📚 Documentación: http://0.0.0.0:{port}/docs") 
-    print("❤️  Health Check: /health")
+    print("❤️  Health Check: /api/health")
     print("🔐 Login: /login")
     print("🔍 Identificar Plantas: /identify-plant")
     uvicorn.run(app, host="0.0.0.0", port=port)
