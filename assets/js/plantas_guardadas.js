@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('🚀 Inicializando Panel de Administración...');
     inicializarEventListeners();
     cargarImagenes();
-    cargarSuscriptores(); // 🆕 Cargar suscriptores desde Supabase
+    cargarSuscriptores();
 });
 
 /**
@@ -338,7 +338,7 @@ async function enviarNotificacionATodos() {
 }
 
 // =============================================
-// GESTIÓN DE IMÁGENES
+// GESTIÓN DE IMÁGENES - CORREGIDO
 // =============================================
 
 /**
@@ -348,6 +348,7 @@ async function cargarImagenes() {
     mostrarLoading(true);
     
     try {
+        console.log('🔄 Cargando imágenes desde:', `${API_BASE}/list-images`);
         const response = await fetch(`${API_BASE}/list-images`);
         
         if (!response.ok) {
@@ -355,25 +356,34 @@ async function cargarImagenes() {
         }
         
         const data = await response.json();
+        console.log('📦 Datos recibidos:', data);
         
-        if (data.images && data.images.length > 0) {
+        if (data.images && Array.isArray(data.images) && data.images.length > 0) {
             todasLasImagenes = data.images.map(imagen => ({
                 ...imagen,
+                id: imagen.id,
+                planta_id: imagen.planta_id || 'Sin nombre',
+                description: imagen.description || 'Sin descripción',
+                nombre_usuario: imagen.nombre_usuario || 'Anónimo',
+                fecha_subida: imagen.fecha_subida || new Date().toISOString(),
+                estado: imagen.estado || 'pendiente',
                 url_imagen: imagen.url_imagen || generarUrlPlaceholder(imagen),
-                latitud: imagen.lat || null,
-                longitud: imagen.lng || null,
+                lat: imagen.lat || null,
+                lng: imagen.lng || null,
                 tipo_publicacion: imagen.tipo_publicacion || 'galeria'
             }));
             
-            console.log("🖼️ Imágenes cargadas:", todasLasImagenes.length);
+            console.log("🖼️ Imágenes procesadas:", todasLasImagenes.length);
             actualizarEstadisticas();
             filtrarImagenes();
         } else {
+            console.log('📭 No hay imágenes o array vacío');
             mostrarEmptyState();
         }
     } catch (error) {
         console.error('❌ Error cargando imágenes:', error);
         mostrarMensaje('Error al cargar imágenes: ' + error.message, 'error');
+        mostrarEmptyState();
     } finally {
         mostrarLoading(false);
     }
@@ -464,8 +474,8 @@ function mostrarImagenes(imagenes) {
                     <!-- Información de coordenadas -->
                     <div class="coordenadas-info">
                         <i class="fas fa-map-marker-alt"></i> 
-                        ${imagen.latitud && imagen.longitud ? 
-                            `Coordenadas: ${imagen.latitud}, ${imagen.longitud}` : 
+                        ${imagen.lat && imagen.lng ? 
+                            `Coordenadas: ${imagen.lat}, ${imagen.lng}` : 
                             'Sin coordenadas'}
                     </div>
                     
@@ -492,10 +502,10 @@ function mostrarImagenes(imagenes) {
                             }
                             <button class="btn btn-info btn-sm" onclick="editarImagen(
                                 ${imagen.id}, 
-                                '${imagen.planta_id}', 
-                                '${imagen.description || ''}',
-                                '${imagen.latitud || ''}',
-                                '${imagen.longitud || ''}',
+                                '${(imagen.planta_id || '').replace(/'/g, "\\'")}', 
+                                '${(imagen.description || '').replace(/'/g, "\\'")}',
+                                '${imagen.lat || ''}',
+                                '${imagen.lng || ''}',
                                 '${imagen.tipo_publicacion || 'galeria'}'
                             )">
                                 <i class="fas fa-edit"></i>
@@ -504,8 +514,8 @@ function mostrarImagenes(imagenes) {
                                 <i class="fas fa-trash"></i>
                             </button>
                         </div>
-                        ${imagen.latitud && imagen.longitud ? 
-                            `<button class="btn btn-mapa btn-sm w-100 mt-2" onclick="verEnMapa('${imagen.latitud}', '${imagen.longitud}', '${imagen.planta_id}')">
+                        ${imagen.lat && imagen.lng ? 
+                            `<button class="btn btn-mapa btn-sm w-100 mt-2" onclick="verEnMapa('${imagen.lat}', '${imagen.lng}', '${imagen.planta_id}')">
                                 <i class="fas fa-map-marked-alt me-1"></i> Ver en Mapa
                             </button>` : ''
                         }
@@ -537,7 +547,7 @@ function verEnMapa(latitud, longitud, titulo) {
     };
     
     localStorage.setItem('marcador_actual', JSON.stringify(marcador));
-    window.open('mapa.html', '_blank');
+    window.open('Mapa.html', '_blank');
 }
 
 // =============================================
@@ -846,5 +856,4 @@ function cerrarProgresoNotificacion(toast) {
             toast.parentNode.removeChild(toast);
         }
     }, 2000);
-
 }
