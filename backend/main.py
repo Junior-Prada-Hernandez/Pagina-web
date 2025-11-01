@@ -1,5 +1,5 @@
 from typing import Union, Optional
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -98,8 +98,11 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
 # SERVIR ARCHIVOS ESTÁTICOS - CORREGIDO PARA RENDER
 # =============================================================================
 
-# Rutas para servir archivos HTML y estáticos
-BASE_DIR = Path(__file__).parent.parent
+# En Render, los archivos están en el mismo directorio que main.py
+BASE_DIR = Path(__file__).parent
+
+# Montar archivos estáticos
+app.mount("/static", StaticFiles(directory=BASE_DIR), name="static")
 
 @app.get("/")
 async def read_root():
@@ -142,32 +145,51 @@ def health_check():
     }
 
 # =============================================================================
-# IDENTIFICACIÓN DE PLANTAS
+# IDENTIFICACIÓN DE PLANTAS - CORREGIDO
 # =============================================================================
 
 @app.post("/identify-plant")
 async def identify_plant(file: UploadFile = File(...)):
     try:
+        print(f"🔍 Iniciando identificación de planta: {file.filename}")
+        
         allowed_content_types = ['image/jpeg', 'image/png', 'image/webp']
         if file.content_type not in allowed_content_types:
-            raise HTTPException(status_code=400, detail=f"Tipo de archivo no soportado")
+            raise HTTPException(status_code=400, detail=f"Tipo de archivo no soportado. Use JPEG, PNG o WebP.")
         
         api_key = os.getenv('PLANT_ID_API_KEY')
         if not api_key:
+            print("❌ PLANT_ID_API_KEY no encontrada en variables de entorno")
             raise HTTPException(status_code=500, detail="API Key no configurada")
         
+        print(f"✅ API Key encontrada: {api_key[:10]}...")
+        
         file_content = await file.read()
+        print(f"📁 Tamaño del archivo: {len(file_content)} bytes")
+        
         files = {'images': (file.filename, file_content, file.content_type)}
         data = {'organs': 'auto'}
         
         plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
-        response = requests.post(plantnet_url, files=files, data=data)
+        print(f"🌐 Enviando solicitud a PlantNet...")
+        
+        response = requests.post(plantnet_url, files=files, data=data, timeout=30)
+        
+        print(f"📥 Respuesta de PlantNet: {response.status_code}")
         
         if response.status_code != 200:
-            error_detail = response.json().get('error', 'Error desconocido')
+            error_detail = "Error desconocido"
+            try:
+                error_data = response.json()
+                error_detail = error_data.get('error', error_detail)
+            except:
+                error_detail = response.text
+                
+            print(f"❌ Error PlantNet: {error_detail}")
             raise HTTPException(status_code=response.status_code, detail=f"PlantNet API error: {error_detail}")
         
         plant_data = response.json()
+        print(f"✅ Identificación exitosa. {len(plant_data.get('results', []))} resultados")
         
         if not plant_data.get('results') or len(plant_data['results']) == 0:
             return {
@@ -183,9 +205,13 @@ async def identify_plant(file: UploadFile = File(...)):
             "best_match": plant_data['results'][0]
         }
         
+    except requests.exceptions.Timeout:
+        print("❌ Timeout en la solicitud a PlantNet")
+        raise HTTPException(status_code=504, detail="Tiempo de espera agotado")
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ Error interno: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 # =============================================================================
