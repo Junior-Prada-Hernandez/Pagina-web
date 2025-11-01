@@ -13,6 +13,8 @@ from passlib.context import CryptContext
 from datetime import timedelta
 from jose import JWTError, jwt
 from pathlib import Path
+import io
+from PIL import Image
 
 # =============================================================================
 # CONFIGURACIÓN INICIAL
@@ -95,6 +97,55 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
         return None
 
 # =============================================================================
+# FUNCIONES DE COMPRESIÓN DE IMÁGENES
+# =============================================================================
+
+def compress_image(image_data: bytes, max_size: int = 500000, max_dimension: int = 1200) -> bytes:
+    """
+    Comprime una imagen para reducir su tamaño
+    """
+    try:
+        # Abrir imagen
+        image = Image.open(io.BytesIO(image_data))
+        
+        # Redimensionar si es muy grande
+        if image.size[0] > max_dimension or image.size[1] > max_dimension:
+            image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
+        
+        # Convertir a RGB si es PNG con transparencia
+        if image.mode in ('RGBA', 'LA'):
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            background.paste(image, mask=image.split()[-1])
+            image = background
+        
+        # Guardar comprimido
+        output = io.BytesIO()
+        
+        # Determinar calidad basada en el tamaño objetivo
+        quality = 85
+        image.save(output, format='JPEG', quality=quality, optimize=True)
+        compressed_data = output.getvalue()
+        
+        # Si sigue siendo muy grande, reducir calidad
+        while len(compressed_data) > max_size and quality > 40:
+            quality -= 10
+            output = io.BytesIO()
+            image.save(output, format='JPEG', quality=quality, optimize=True)
+            compressed_data = output.getvalue()
+        
+        original_size = len(image_data)
+        compressed_size = len(compressed_data)
+        reduction = ((original_size - compressed_size) / original_size) * 100
+        
+        print(f"📊 Compresión: {original_size//1024}KB → {compressed_size//1024}KB ({reduction:.1f}% reducción)")
+        
+        return compressed_data
+        
+    except Exception as e:
+        print(f"⚠️  Error en compresión, usando imagen original: {e}")
+        return image_data
+
+# =============================================================================
 # SERVIR ARCHIVOS ESTÁTICOS - CORREGIDO PARA RENDER
 # =============================================================================
 
@@ -150,105 +201,135 @@ def health_check():
     }
 
 # =============================================================================
-# IDENTIFICACIÓN DE PLANTAS - CORREGIDO CON TIMEOUT MÁS LARGO
+# IDENTIFICACIÓN DE PLANTAS - OPTIMIZADO PARA RENDER
 # =============================================================================
 
 @app.post("/identify-plant")
 async def identify_plant(file: UploadFile = File(...)):
+    """
+    🔍 Identificación de plantas OPTIMIZADA para Render
+    - Compresión automática de imágenes
+    - Timeout extendido
+    - Manejo robusto de errores
+    """
     try:
-        print(f"🔍 Iniciando identificación de planta: {file.filename}")
+        print(f"🔍 Iniciando identificación OPTIMIZADA: {file.filename}")
         
-        # 1. VALIDAR TIPO Y TAMAÑO DE ARCHIVO
+        # 1. VALIDAR TIPO DE ARCHIVO
         allowed_content_types = ['image/jpeg', 'image/png', 'image/webp']
         if file.content_type not in allowed_content_types:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Tipo de archivo no soportado. Use: {', '.join(allowed_content_types)}"
+                detail=f"Tipo de archivo no soportado. Use: JPEG, PNG o WebP"
             )
         
-        # 2. OBTENER API KEY
+        # 2. LEER Y COMPRIMIR IMAGEN
+        original_content = await file.read()
+        original_size = len(original_content)
+        print(f"📁 Tamaño original: {original_size//1024}KB")
+        
+        if original_size > 5 * 1024 * 1024:  # 5MB
+            raise HTTPException(
+                status_code=400,
+                detail="Imagen demasiado grande (máximo 5MB). Por favor usa una imagen más pequeña."
+            )
+        
+        # 3. COMPRIMIR IMAGEN
+        compressed_content = compress_image(original_content)
+        compressed_size = len(compressed_content)
+        
+        print(f"📊 Después de compresión: {compressed_size//1024}KB")
+        
+        # 4. OBTENER API KEY
         api_key = os.getenv('PLANT_ID_API_KEY')
         if not api_key:
-            print("❌ PLANT_ID_API_KEY no encontrada")
-            raise HTTPException(status_code=500, detail="API Key no configurada")
+            raise HTTPException(status_code=500, detail="Servicio de identificación no disponible")
         
-        print(f"✅ API Key encontrada: {api_key[:10]}...")
-        
-        # 3. LEER Y OPTIMIZAR IMAGEN
-        file_content = await file.read()
-        file_size = len(file_content)
-        print(f"📁 Tamaño del archivo: {file_size} bytes")
-        
-        # 4. REDUCIR TAMAÑO SI ES MUY GRANDE (más de 1MB)
-        if file_size > 1024 * 1024:  # 1MB
-            print("🔄 Imagen muy grande, puede causar timeout...")
-        
-        # 5. PREPARAR DATOS CON TIMEOUT MÁS LARGO
-        files = {'images': (file.filename, file_content, file.content_type)}
+        # 5. PREPARAR Y ENVIAR SOLICITUD
+        files = {'images': (file.filename, compressed_content, 'image/jpeg')}  # Siempre JPEG después de compresión
         data = {'organs': 'auto'}
         
         plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
-        print(f"🌐 Enviando solicitud a PlantNet (timeout: 60s)...")
+        print(f"🌐 Enviando a PlantNet (comprimido: {compressed_size//1024}KB)...")
         
-        # 6. TIMEOUT MÁS LARGO - 60 segundos
-        response = requests.post(plantnet_url, files=files, data=data, timeout=60)
+        # 6. TIMEOUT EXTENDIDO PARA RENDER
+        response = requests.post(plantnet_url, files=files, data=data, timeout=75)  # 75 segundos
         
-        print(f"📥 Respuesta de PlantNet: {response.status_code}")
+        print(f"📥 Respuesta PlantNet: {response.status_code}")
         
         if response.status_code != 200:
-            error_detail = "Error desconocido"
-            try:
-                error_data = response.json()
-                error_detail = error_data.get('error', error_detail)
-            except:
-                error_detail = response.text[:100]  # Solo primeros 100 caracteres
-                
-            print(f"❌ Error PlantNet: {error_detail}")
-            raise HTTPException(
-                status_code=response.status_code, 
-                detail=f"Error en identificación: {error_detail}"
-            )
+            error_info = response.text[:200] if response.text else "Sin detalles"
+            print(f"❌ Error PlantNet: {error_info}")
+            
+            if response.status_code == 429:
+                raise HTTPException(status_code=429, detail="Límite de solicitudes excedido. Intenta en unos minutos.")
+            elif response.status_code == 413:
+                raise HTTPException(status_code=413, detail="Imagen demasiado grande después de compresión.")
+            else:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Error del servicio de identificación: {error_info}"
+                )
         
+        # 7. PROCESAR RESULTADOS
         plant_data = response.json()
-        print(f"✅ Identificación exitosa. {len(plant_data.get('results', []))} resultados")
+        results_count = len(plant_data.get('results', []))
         
-        if not plant_data.get('results') or len(plant_data['results']) == 0:
+        print(f"✅ Identificación exitosa: {results_count} resultados")
+        
+        if results_count == 0:
             return {
                 "success": True,
-                "message": "No se pudo identificar la planta con certeza",
-                "results": []
+                "message": "No se pudo identificar la planta con certeza. Intenta con una imagen más clara o desde otro ángulo.",
+                "results": [],
+                "optimization": {
+                    "original_size_kb": original_size // 1024,
+                    "compressed_size_kb": compressed_size // 1024,
+                    "reduction_percent": round(((original_size - compressed_size) / original_size) * 100, 1)
+                }
             }
         
-        # 7. FORMATEAR RESPUESTA MÁS LIMPIA
+        # 8. FORMATEAR MEJOR RESPUESTA
         best_match = plant_data['results'][0]
-        scientific_name = best_match.get('species', {}).get('scientificName', 'Desconocida')
-        common_name = best_match.get('species', {}).get('commonNames', [''])[0]
+        species = best_match.get('species', {})
         
-        print(f"🌿 Planta identificada: {scientific_name} ({common_name})")
+        scientific_name = species.get('scientificName', 'Desconocida')
+        common_names = species.get('commonNames', [])
+        common_name = common_names[0] if common_names else 'No disponible'
+        probability = best_match.get('score', 0)
+        
+        print(f"🌿 Identificada: {scientific_name} ({common_name}) - {probability*100:.1f}%")
         
         return {
             "success": True,
-            "message": f"Identificación exitosa. {len(plant_data['results'])} resultados encontrados",
+            "message": f"¡Planta identificada! {results_count} resultados encontrados",
             "results": plant_data['results'],
             "best_match": best_match,
             "identified_plant": {
                 "scientific_name": scientific_name,
                 "common_name": common_name,
-                "probability": best_match.get('score', 0)
+                "probability": probability,
+                "confidence": f"{probability*100:.1f}%"
+            },
+            "optimization": {
+                "original_size_kb": original_size // 1024,
+                "compressed_size_kb": compressed_size // 1024,
+                "reduction_percent": round(((original_size - compressed_size) / original_size) * 100, 1),
+                "note": "Imagen comprimida para mejor rendimiento"
             }
         }
         
     except requests.exceptions.Timeout:
-        print("❌ Timeout en la solicitud a PlantNet (60s)")
+        print("❌ Timeout en PlantNet (75s)")
         raise HTTPException(
             status_code=504, 
-            detail="Tiempo de espera agotado. La identificación está tomando más de lo esperado. Intenta con una imagen más pequeña o más clara."
+            detail="La identificación está tomando demasiado tiempo. Intenta con una imagen más pequeña o mejor iluminada."
         )
     except requests.exceptions.ConnectionError:
         print("❌ Error de conexión con PlantNet")
         raise HTTPException(
             status_code=503,
-            detail="Error de conexión con el servicio de identificación. Intenta nuevamente."
+            detail="Error de conexión con el servicio de identificación. Por favor, intenta nuevamente."
         )
     except HTTPException:
         raise
@@ -260,7 +341,83 @@ async def identify_plant(file: UploadFile = File(...)):
         )
 
 # =============================================================================
-# GESTIÓN DE IMÁGENES
+# ENDPOINT RÁPIDO PARA IMÁGENES PEQUEÑAS
+# =============================================================================
+
+@app.post("/identify-plant-fast")
+async def identify_plant_fast(file: UploadFile = File(...)):
+    """
+    🚀 Versión RÁPIDA para imágenes pequeñas (< 500KB)
+    - Timeout más corto
+    - Procesamiento optimizado
+    """
+    try:
+        print(f"🚀 Identificación RÁPIDA: {file.filename}")
+        
+        # LÍMITE ESTRICTO PARA VERSIÓN RÁPIDA
+        MAX_FAST_SIZE = 500 * 1024  # 500KB
+        
+        file_content = await file.read()
+        file_size = len(file_content)
+        
+        if file_size > MAX_FAST_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Para identificación rápida, usa imágenes menores a 500KB. Esta imagen es {file_size//1024}KB."
+            )
+        
+        print(f"📁 Tamaño rápido: {file_size//1024}KB")
+        
+        api_key = os.getenv('PLANT_ID_API_KEY')
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Servicio no disponible")
+        
+        # COMPRIMIR AÚN MÁS PARA VERSIÓN RÁPIDA
+        compressed_content = compress_image(file_content, max_size=300000, max_dimension=800)
+        
+        files = {'images': (file.filename, compressed_content, 'image/jpeg')}
+        data = {'organs': 'auto'}
+        
+        plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
+        
+        # TIMEOUT CORTO PARA RÁPIDO
+        response = requests.post(plantnet_url, files=files, data=data, timeout=45)
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail="Error en identificación rápida. Usa el endpoint normal."
+            )
+        
+        plant_data = response.json()
+        
+        if not plant_data.get('results'):
+            return {
+                "success": True,
+                "message": "No se pudo identificar (modo rápido). Intenta con el endpoint normal.",
+                "results": []
+            }
+        
+        best_match = plant_data['results'][0]
+        
+        return {
+            "success": True,
+            "message": "Identificación rápida exitosa!",
+            "results": plant_data['results'],
+            "best_match": best_match,
+            "mode": "fast"
+        }
+        
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Timeout en modo rápido. Usa el endpoint normal para imágenes más grandes."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en modo rápido: {str(e)}")
+
+# =============================================================================
+# GESTIÓN DE IMÁGENES (MANTIENE TU CÓDIGO ORIGINAL)
 # =============================================================================
 
 @app.post("/upload")
@@ -337,7 +494,7 @@ async def upload_image(
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 # =============================================================================
-# ENDPOINTS DE CONSULTA
+# ENDPOINTS DE CONSULTA (MANTIENE TU CÓDIGO ORIGINAL)
 # =============================================================================
 
 @app.get("/list-images")
@@ -411,7 +568,7 @@ async def get_imagenes_noticias():
         raise HTTPException(status_code=500, detail=f"Error obteniendo imágenes noticias: {str(e)}")
 
 # =============================================================================
-# ADMINISTRACIÓN
+# ADMINISTRACIÓN (MANTIENE TU CÓDIGO ORIGINAL)
 # =============================================================================
 
 @app.delete("/delete-image/{image_id}")
@@ -515,7 +672,7 @@ async def editar_imagen(
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 # =============================================================================
-# SUSCRIPTORES
+# SUSCRIPTORES (MANTIENE TU CÓDIGO ORIGINAL)
 # =============================================================================
 
 @app.post("/suscribir")
@@ -595,7 +752,7 @@ async def eliminar_suscriptor(suscriptor_id: int):
         raise HTTPException(status_code=500, detail=f"Error eliminando suscriptor: {str(e)}")
 
 # =============================================================================
-# AUTENTICACIÓN
+# AUTENTICACIÓN (MANTIENE TU CÓDIGO ORIGINAL)
 # =============================================================================
 
 @app.post("/login")
@@ -650,7 +807,7 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     
     print("\n" + "="*60)
-    print("🚀 INICIANDO SERVIDOR FASTAPI - CUENCA UBATÉ (RENDER)")
+    print("🚀 INICIANDO SERVIDOR FASTAPI - CUENCA UBATÉ (OPTIMIZADO)")
     print("="*60)
     print(f"📁 Directorio base: {BASE_DIR}")
     print(f"🌐 URL: http://0.0.0.0:{port}")
@@ -658,4 +815,5 @@ if __name__ == "__main__":
     print("❤️  Health Check: /api/health")
     print("🔐 Login: /login")
     print("🔍 Identificar Plantas: /identify-plant")
+    print("🚀 Identificación Rápida: /identify-plant-fast")
     uvicorn.run(app, host="0.0.0.0", port=port)
