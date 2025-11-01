@@ -1,5 +1,5 @@
 from typing import Union, Optional
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -13,10 +13,6 @@ from passlib.context import CryptContext
 from datetime import timedelta
 from jose import JWTError, jwt
 from pathlib import Path
-import asyncio
-import aiohttp
-import base64
-import json
 
 # =============================================================================
 # CONFIGURACIÓN INICIAL
@@ -142,88 +138,18 @@ def health_check():
     }
 
 # =============================================================================
-# SOLUCIÓN DEFINITIVA: IDENTIFICACIÓN CON RETRY Y OPTIMIZACIÓN
+# IDENTIFICACIÓN DE PLANTAS - SIMPLE Y FUNCIONAL
 # =============================================================================
-
-# Cache simple para evitar timeout en desarrollo
-identification_cache = {}
-
-async def make_plantnet_request(files, data, api_key, timeout=30, retries=3):
-    """
-    Función robusta para hacer requests a PlantNet con retry mechanism
-    """
-    plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
-    
-    for attempt in range(retries):
-        try:
-            print(f"🔄 Intento {attempt + 1}/{retries} - Timeout: {timeout}s")
-            
-            # Usar aiohttp para mejor performance asíncrona
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
-                form_data = aiohttp.FormData()
-                
-                # Agregar archivo
-                for field_name, (filename, file_content, content_type) in files.items():
-                    form_data.add_field(field_name, file_content, filename=filename, content_type=content_type)
-                
-                # Agregar otros datos
-                for key, value in data.items():
-                    form_data.add_field(key, value)
-                
-                start_time = datetime.now()
-                async with session.post(plantnet_url, data=form_data) as response:
-                    if response.status == 200:
-                        plant_data = await response.json()
-                        request_time = (datetime.now() - start_time).total_seconds()
-                        print(f"✅ Request exitoso en {request_time:.1f}s")
-                        return plant_data
-                    else:
-                        error_text = await response.text()
-                        print(f"❌ Error HTTP {response.status}: {error_text[:100]}")
-                        
-                        # Si es error 429 (rate limit), esperar más
-                        if response.status == 429:
-                            wait_time = (attempt + 1) * 10  # Esperar 10, 20, 30 segundos
-                            print(f"⏳ Rate limit, esperando {wait_time}s...")
-                            await asyncio.sleep(wait_time)
-                            continue
-                        
-                        # Para otros errores, reintentar inmediatamente
-                        if attempt < retries - 1:
-                            await asyncio.sleep(2)  # Espera corta entre reintentos
-                            continue
-                        else:
-                            raise HTTPException(response.status, f"PlantNet error: {error_text[:100]}")
-        
-        except asyncio.TimeoutError:
-            print(f"⏰ Timeout en intento {attempt + 1}")
-            if attempt < retries - 1:
-                # Incrementar timeout en cada reintento
-                timeout += 10
-                continue
-            else:
-                raise HTTPException(504, "Timeout después de múltiples intentos")
-        
-        except aiohttp.ClientError as e:
-            print(f"🌐 Error de conexión: {e}")
-            if attempt < retries - 1:
-                await asyncio.sleep(5)
-                continue
-            else:
-                raise HTTPException(503, "Error de conexión después de múltiples intentos")
-    
-    raise HTTPException(500, "Todos los intentos fallaron")
 
 @app.post("/identify-plant")
 async def identify_plant(file: UploadFile = File(...)):
     """
-    🔍 Identificación ROBUSTA con retry mechanism
-    - Múltiples reintentos automáticos
-    - Timeout adaptativo
-    - Manejo mejorado de errores
+    🔍 Identificación SIMPLE pero FUNCIONAL
+    - Sin dependencias extra
+    - Límites realistas para Render
     """
     try:
-        print(f"🔍 INICIO identificación ROBUSTA: {file.filename}")
+        print(f"🔍 Iniciando identificación: {file.filename}")
         
         # 1. VALIDACIÓN RÁPIDA
         allowed_types = ['image/jpeg', 'image/png', 'image/webp']
@@ -231,7 +157,7 @@ async def identify_plant(file: UploadFile = File(...)):
             raise HTTPException(400, "Solo se permiten imágenes JPEG, PNG o WebP")
         
         # 2. LECTURA Y VALIDACIÓN DE TAMAÑO
-        MAX_SIZE = 4 * 1024 * 1024  # 4MB máximo
+        MAX_SIZE = 2 * 1024 * 1024  # 2MB máximo (realista para Render)
         
         file_content = await file.read()
         file_size = len(file_content)
@@ -239,46 +165,69 @@ async def identify_plant(file: UploadFile = File(...)):
         print(f"📁 Tamaño de imagen: {file_size//1024}KB")
         
         if file_size > MAX_SIZE:
-            raise HTTPException(400, f"Imagen demasiado grande ({file_size//1024}KB). Máximo: 4MB.")
+            raise HTTPException(
+                400, 
+                f"Imagen demasiado grande ({file_size//1024}KB). Para mejor rendimiento, usa imágenes menores a 2MB."
+            )
         
-        # 3. ESTRATEGIA DE TIMEOUT BASADA EN TAMAÑO
-        if file_size > 2 * 1024 * 1024:
-            timeout_strategy = 40  # 40s para imágenes grandes
-            print("⚠️  Imagen grande, usando timeout extendido")
-        else:
-            timeout_strategy = 25  # 25s para imágenes normales
-        
-        # 4. VERIFICAR API KEY
+        # 3. VERIFICAR API KEY
         api_key = os.getenv('PLANT_ID_API_KEY')
         if not api_key:
+            print("❌ PLANT_ID_API_KEY no configurada")
             raise HTTPException(500, "Servicio de identificación no disponible")
         
-        # 5. PREPARAR DATOS
+        print(f"✅ API Key encontrada")
+        
+        # 4. PREPARAR Y ENVIAR SOLICITUD
         files = {'images': (file.filename, file_content, file.content_type)}
         data = {'organs': 'auto'}
         
-        # 6. HACER REQUEST ROBUSTA
-        start_total = datetime.now()
-        plant_data = await make_plantnet_request(files, data, api_key, timeout=timeout_strategy, retries=2)
-        total_time = (datetime.now() - start_total).total_seconds()
+        plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
+        print(f"🌐 Enviando a PlantNet...")
         
-        # 7. PROCESAR RESULTADOS
+        # 5. TIMEOUT REALISTA para Render
+        start_time = datetime.now()
+        response = requests.post(plantnet_url, files=files, data=data, timeout=45)
+        request_time = (datetime.now() - start_time).total_seconds()
+        
+        print(f"📥 Respuesta recibida en {request_time:.1f}s")
+        
+        if response.status_code != 200:
+            error_detail = "Error desconocido"
+            try:
+                error_data = response.json()
+                error_detail = error_data.get('error', error_detail)
+            except:
+                error_detail = response.text[:100]
+                
+            print(f"❌ Error PlantNet: {error_detail}")
+            
+            # Mensajes de error específicos
+            if response.status_code == 413:
+                raise HTTPException(400, "Imagen demasiado grande para PlantNet")
+            elif response.status_code == 429:
+                raise HTTPException(429, "Demasiadas solicitudes. Espera unos minutos.")
+            else:
+                raise HTTPException(response.status_code, f"Error del servicio: {error_detail}")
+        
+        # 6. PROCESAR RESULTADOS
+        plant_data = response.json()
         results = plant_data.get('results', [])
-        print(f"✅ Identificación completada en {total_time:.1f}s - {len(results)} resultados")
+        
+        print(f"✅ Identificación exitosa: {len(results)} resultados")
         
         if not results:
             return {
                 "success": True,
-                "message": "No se pudo identificar la planta. Intenta con una imagen más clara o desde otro ángulo.",
+                "message": "No se pudo identificar la planta con certeza. Intenta con una imagen más clara y enfocada.",
                 "results": [],
                 "performance": {
                     "image_size_kb": file_size // 1024,
-                    "total_time": f"{total_time:.1f}s",
-                    "strategy": "robusta"
+                    "processing_time": f"{request_time:.1f}s"
                 }
             }
         
-        # 8. FORMATEAR RESPUESTA
+        # 7. FORMATEAR RESPUESTA
         best_match = results[0]
         species = best_match.get('species', {})
         
@@ -287,11 +236,11 @@ async def identify_plant(file: UploadFile = File(...)):
         common_name = common_names[0] if common_names else 'No disponible'
         probability = best_match.get('score', 0)
         
-        print(f"🌿 Identificada: {scientific_name} - {probability*100:.1f}%")
+        print(f"🌿 Identificada: {scientific_name} - {probability*100:.1f}% de probabilidad")
         
         return {
             "success": True,
-            "message": f"¡Planta identificada exitosamente!",
+            "message": f"¡Planta identificada! {len(results)} resultados encontrados",
             "results": results[:3],
             "best_match": best_match,
             "identified_plant": {
@@ -302,85 +251,24 @@ async def identify_plant(file: UploadFile = File(...)):
             },
             "performance": {
                 "image_size_kb": file_size // 1024,
-                "total_time": f"{total_time:.1f}s",
-                "strategy": "robusta con reintentos"
+                "processing_time": f"{request_time:.1f}s"
             }
         }
         
+    except requests.exceptions.Timeout:
+        print("❌ Timeout en PlantNet (45s)")
+        raise HTTPException(
+            504, 
+            "La identificación está tomando demasiado tiempo. Por favor, usa una imagen más pequeña (menor a 2MB) o intenta más tarde."
+        )
+    except requests.exceptions.ConnectionError:
+        print("❌ Error de conexión con PlantNet")
+        raise HTTPException(503, "Error de conexión. El servicio puede estar temporalmente no disponible.")
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error crítico: {str(e)}")
-        raise HTTPException(500, f"Error interno: {str(e)}")
-
-# =============================================================================
-# ENDPOINT ULTRA-RÁPIDO (SIN RETRY)
-# =============================================================================
-
-@app.post("/identify-fast")
-async def identify_fast(file: UploadFile = File(...)):
-    """
-    🚀 Versión ULTRA-RÁPIDA sin reintentos
-    - Timeout corto
-    - Ideal para imágenes pequeñas
-    """
-    try:
-        print(f"🚀 INICIO identificación ULTRA-RÁPIDA")
-        
-        MAX_SIZE = 1 * 1024 * 1024  # 1MB máximo
-        
-        file_content = await file.read()
-        file_size = len(file_content)
-        
-        if file_size > MAX_SIZE:
-            raise HTTPException(400, f"Para modo rápido: máximo 1MB. Tu imagen: {file_size//1024}KB")
-        
-        print(f"📁 Tamaño rápido: {file_size//1024}KB")
-        
-        api_key = os.getenv('PLANT_ID_API_KEY')
-        if not api_key:
-            raise HTTPException(500, "Servicio no disponible")
-        
-        files = {'images': (file.filename, file_content, file.content_type)}
-        data = {'organs': 'auto'}
-        
-        # SOLO UN INTENTO CON TIMEOUT CORTO
-        plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
-        
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
-            form_data = aiohttp.FormData()
-            form_data.add_field('images', file_content, filename=file.filename, content_type=file.content_type)
-            form_data.add_field('organs', 'auto')
-            
-            async with session.post(plantnet_url, data=form_data) as response:
-                if response.status != 200:
-                    raise HTTPException(response.status, "Error en modo rápido")
-                
-                plant_data = await response.json()
-        
-        results = plant_data.get('results', [])
-        
-        if not results:
-            return {
-                "success": True,
-                "message": "No identificado en modo rápido",
-                "results": [],
-                "mode": "ultra-fast"
-            }
-        
-        return {
-            "success": True,
-            "message": "¡Identificación ultra-rápida exitosa!",
-            "results": results[:2],
-            "best_match": results[0],
-            "mode": "ultra-fast",
-            "recommendation": "Modo óptimo para imágenes <1MB"
-        }
-        
-    except asyncio.TimeoutError:
-        raise HTTPException(504, "Timeout en modo ultra-rápido")
-    except Exception as e:
-        raise HTTPException(500, f"Error rápido: {str(e)}")
+        print(f"❌ Error interno: {str(e)}")
+        raise HTTPException(500, f"Error interno del servidor: {str(e)}")
 
 # =============================================================================
 # MANTENER TODOS LOS ENDPOINTS ORIGINALES
@@ -459,8 +347,6 @@ async def upload_image(
     except Exception as e:
         raise HTTPException(500, f"Error: {str(e)}")
 
-# ... (MANTENER TODOS LOS OTROS ENDPOINTS ORIGINALES)
-
 @app.get("/list-images")
 async def list_images():
     if not supabase:
@@ -531,7 +417,212 @@ async def get_imagenes_noticias():
     except Exception as e:
         raise HTTPException(500, f"Error obteniendo imágenes noticias: {str(e)}")
 
-# ... (TODOS LOS DEMÁS ENDPOINTS ORIGINALES)
+@app.delete("/delete-image/{image_id}")
+async def delete_image(image_id: int):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        image_data = supabase.table("imagenes").select("*").eq("id", image_id).execute()
+        
+        if not image_data.data:
+            raise HTTPException(404, "Imagen no encontrada")
+        
+        filename = image_data.data[0]["filename"]
+        file_path = f"public/{filename}"
+        
+        storage_response = supabase.storage.from_(BUCKET_NAME).remove([file_path])
+        db_response = supabase.table("imagenes").delete().eq("id", image_id).execute()
+        
+        return {
+            "success": True,
+            "message": "Imagen eliminada correctamente",
+            "deleted_filename": filename
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+@app.put("/cambiar-estado/{image_id}")
+async def cambiar_estado_imagen(image_id: int, nuevo_estado: str):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        estados_validos = ['pendiente', 'publicada', 'rechazada', 'activo']
+        if nuevo_estado not in estados_validos:
+            raise HTTPException(400, "Estado no válido")
+        
+        response = supabase.table("imagenes").update({"estado": nuevo_estado}).eq("id", image_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error actualizando estado: {response.error.message}")
+        
+        return {
+            "success": True,
+            "message": f"Estado cambiado a {nuevo_estado}",
+            "nuevo_estado": nuevo_estado
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+@app.put("/editar-imagen/{image_id}")
+async def editar_imagen(
+    image_id: int,
+    nuevo_nombre: str,
+    nueva_descripcion: str = None,
+    nueva_lat: float = None,
+    nueva_lng: float = None,
+    tipo_publicacion: str = "galeria"
+):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        tipos_validos = ['galeria', 'noticias']
+        if tipo_publicacion not in tipos_validos:
+            raise HTTPException(400, "Tipo de publicación no válido")
+        
+        update_data = {
+            "planta_id": nuevo_nombre,
+            "description": nueva_descripcion,
+            "lat": nueva_lat,
+            "lng": nueva_lng,
+            "tipo_publicacion": tipo_publicacion
+        }
+        
+        update_data = {k: v for k, v in update_data.items() if v is not None}
+        
+        response = supabase.table("imagenes").update(update_data).eq("id", image_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            error_msg = str(response.error)
+            if "tipo_publicacion" in error_msg:
+                update_data.pop("tipo_publicacion", None)
+                response = supabase.table("imagenes").update(update_data).eq("id", image_id).execute()
+            
+            if hasattr(response, 'error') and response.error:
+                raise Exception(f"Error actualizando imagen: {response.error.message}")
+        
+        if response.data:
+            return {
+                "success": True, 
+                "message": "Imagen actualizada correctamente",
+                "updated_fields": list(update_data.keys())
+            }
+        else:
+            return {"success": False, "message": "No se pudo actualizar la imagen"}
+            
+    except Exception as e:
+        raise HTTPException(500, detail=f"Error: {str(e)}")
+
+@app.post("/suscribir")
+async def suscribir_usuario(nombre: str = Form(...), email: str = Form(...)):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        if not "@" in email or not "." in email:
+            raise HTTPException(400, "Email no válido")
+        
+        existing = supabase.table("suscriptores").select("*").eq("email", email).execute()
+        
+        if existing.data:
+            return {
+                "success": False,
+                "message": "Este email ya está suscrito",
+                "email": email
+            }
+        
+        suscriptor_data = {
+            "nombre": nombre,
+            "email": email,
+            "fecha_registro": datetime.now().isoformat(),
+            "activo": True
+        }
+        
+        response = supabase.table("suscriptores").insert(suscriptor_data).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error guardando suscriptor: {response.error.message}")
+        
+        return {
+            "success": True,
+            "message": f"¡Gracias {nombre}! Te has suscrito exitosamente."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, detail=f"Error en suscripción: {str(e)}")
+
+@app.get("/suscriptores")
+async def obtener_suscriptores():
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        response = supabase.table("suscriptores").select("*").order("fecha_registro", desc=True).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error obteniendo suscriptores: {response.error.message}")
+        
+        return {
+            "success": True,
+            "count": len(response.data),
+            "suscriptores": response.data
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, detail=f"Error obteniendo suscriptores: {str(e)}")
+
+@app.delete("/eliminar-suscriptor/{suscriptor_id}")
+async def eliminar_suscriptor(suscriptor_id: int):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        response = supabase.table("suscriptores").delete().eq("id", suscriptor_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error eliminando suscriptor: {response.error.message}")
+        
+        return {"success": True, "message": "Suscriptor eliminado correctamente"}
+        
+    except Exception as e:
+        raise HTTPException(500, detail=f"Error eliminando suscriptor: {str(e)}")
+
+@app.post("/login")
+async def login_admin(nombre_usuario: str = Form(...), contraseña: str = Form(...)):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        user = authenticate_user(nombre_usuario, contraseña)
+        if not user:
+            raise HTTPException(401, "Credenciales incorrectas")
+        
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user["nombre de usuario"], "id": user["id"]}, 
+            expires_delta=access_token_expires
+        )
+        
+        supabase.table("usuarios_administradores").update({
+            "actualizado_at": datetime.now().isoformat()
+        }).eq("id", user["id"]).execute()
+        
+        return {
+            "success": True,
+            "access_token": access_token,
+            "token_type": "bearer",
+            "nombre_usuario": user["nombre de usuario"],
+            "id": user["id"]
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, detail=f"Error en login: {str(e)}")
 
 @app.get("/api/keys")
 async def get_api_keys():
@@ -550,10 +641,10 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     
     print("\n" + "="*60)
-    print("🚀 CUENCA UBATÉ - SOLUCIÓN DEFINITIVA")
+    print("🚀 CUENCA UBATÉ - VERSIÓN ESTABLE")
     print("="*60)
     print(f"🌐 URL: http://0.0.0.0:{port}")
-    print("🔍 Identificar Plantas: /identify-plant (robusto con reintentos)")
-    print("🚀 Identificación Rápida: /identify-fast (ultra-rápido)")
-    print("🔄 Características: Retry automático, timeout adaptativo")
+    print("🔍 Identificar Plantas: /identify-plant")
+    print("📊 Límites: 2MB máximo, 45s timeout")
+    print("✅ Sin dependencias extra - 100% funcional")
     uvicorn.run(app, host="0.0.0.0", port=port)
