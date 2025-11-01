@@ -20,7 +20,7 @@ const coordenadasCuencaCompleta = [
   [-73.74850025655438, 5.494107724954747],
   [-73.7553293456681, 5.490898152112016],
   [-73.75895141408132, 5.488332240656552],
-  [-73.76314029263477, 5.485346642925314],
+  [-73.76314029267477, 5.485346642925314],
   [-73.76568829979311, 5.481862165964272],
   [-73.76580193577476, 5.477455340767648],
   [-73.76622889433327, 5.477064995506601],
@@ -339,16 +339,40 @@ const coordenadasCuencaAlta = [
   [-73.93623414762436, 5.235466935822026]
 ];
 
-// 🗺️ Inicializar el mapa con límites estrictos
-map = new mapboxgl.Map({
-  container: 'map',
-  style: 'mapbox://styles/mapbox/satellite-streets-v12',
-  center: [-73.833, 5.31],
-  zoom: 11,
-  pitch: 45,
-  bearing: -20,
-  maxBounds: calcularLimitesCuenca() // 🔒 LIMITES ESTRICTOS
-});
+// 🗺️ Inicializar el mapa
+function inicializarMapa() {
+  try {
+    console.log('Inicializando mapa...');
+    
+    map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      center: [-73.833, 5.31],
+      zoom: 11,
+      pitch: 45,
+      bearing: -20,
+      maxBounds: calcularLimitesCuenca()
+    });
+
+    map.on('load', function() {
+      console.log('Mapa cargado exitosamente');
+      const loadingElement = document.getElementById('loadingMap');
+      if (loadingElement) {
+        loadingElement.style.display = 'none';
+      }
+      agregarPoligonos();
+    });
+
+    map.on('error', function(e) {
+      console.error('Error en el mapa:', e);
+      mostrarErrorMapa();
+    });
+
+  } catch (error) {
+    console.error('Error inicializando mapa:', error);
+    mostrarErrorMapa();
+  }
+}
 
 // 🔒 Calcular límites que cubran ambas cuencas
 function calcularLimitesCuenca() {
@@ -357,16 +381,16 @@ function calcularLimitesCuenca() {
   const lats = todasCoordenadas.map(coord => coord[1]);
   
   return [
-    [Math.min(...lngs) - 0.02, Math.min(...lats) - 0.02], // Suroeste
-    [Math.max(...lngs) + 0.02, Math.max(...lats) + 0.02]  // Noreste
+    [Math.min(...lngs) - 0.02, Math.min(...lats) - 0.02],
+    [Math.max(...lngs) + 0.02, Math.max(...lats) + 0.02]
   ];
 }
 
-// ⚪ Polígonos de las cuencas
-map.on('load', async () => {
-  console.log('Mapa cargado, agregando polígonos...');
+// ⚪ Agregar polígonos de las cuencas
+function agregarPoligonos() {
+  console.log('Agregando polígonos...');
   
-  // CUENCA COMPLETA (más grande)
+  // CUENCA COMPLETA
   const geojsonCompleta = {
     type: 'FeatureCollection',
     features: [{
@@ -376,7 +400,7 @@ map.on('load', async () => {
     }]
   };
 
-  // CUENCA ALTA (más pequeña)
+  // CUENCA ALTA
   const geojsonAlta = {
     type: 'FeatureCollection',
     features: [{
@@ -386,61 +410,47 @@ map.on('load', async () => {
     }]
   };
 
-  // Agregar fuentes
-  map.addSource('cuenca-completa', { type: 'geojson', data: geojsonCompleta });
-  map.addSource('cuenca-alta', { type: 'geojson', data: geojsonAlta });
+  try {
+    // Agregar fuentes
+    map.addSource('cuenca-completa', { type: 'geojson', data: geojsonCompleta });
+    map.addSource('cuenca-alta', { type: 'geojson', data: geojsonAlta });
 
-  // Capa de relleno - Cuenca Completa
-  map.addLayer({
-    id: 'cuenca-completa-relleno',
-    type: 'fill',
-    source: 'cuenca-completa',
-    paint: {
-      'fill-color': '#16a085',
-      'fill-opacity': 0.15
-    }
-  });
+    // Capas de relleno y línea
+    map.addLayer({
+      id: 'cuenca-completa-relleno',
+      type: 'fill',
+      source: 'cuenca-completa',
+      paint: { 'fill-color': '#16a085', 'fill-opacity': 0.15 }
+    });
 
-  // Capa de línea - Cuenca Completa
-  map.addLayer({
-    id: 'cuenca-completa-linea',
-    type: 'line',
-    source: 'cuenca-completa',
-    paint: {
-      'line-color': '#16a085',
-      'line-width': 2,
-      'line-opacity': 0.6
-    }
-  });
+    map.addLayer({
+      id: 'cuenca-completa-linea',
+      type: 'line',
+      source: 'cuenca-completa',
+      paint: { 'line-color': '#16a085', 'line-width': 2, 'line-opacity': 0.6 }
+    });
 
-  // Capa de relleno - Cuenca Alta
-  map.addLayer({
-    id: 'cuenca-alta-relleno',
-    type: 'fill',
-    source: 'cuenca-alta',
-    paint: {
-      'fill-color': '#ff6b6b',
-      'fill-opacity': 0.2
-    }
-  });
+    map.addLayer({
+      id: 'cuenca-alta-relleno',
+      type: 'fill',
+      source: 'cuenca-alta',
+      paint: { 'fill-color': '#ff6b6b', 'fill-opacity': 0.2 }
+    });
 
-  // Capa de línea - Cuenca Alta
-  map.addLayer({
-    id: 'cuenca-alta-linea',
-    type: 'line',
-    source: 'cuenca-alta',
-    paint: {
-      'line-color': '#ff6b6b',
-      'line-width': 3,
-      'line-opacity': 0.8
-    }
-  });
+    map.addLayer({
+      id: 'cuenca-alta-linea',
+      type: 'line',
+      source: 'cuenca-alta',
+      paint: { 'line-color': '#ff6b6b', 'line-width': 3, 'line-opacity': 0.8 }
+    });
 
-  console.log('Polígonos agregados, cargando imágenes...');
-  
-  // Cargar imágenes desde Supabase
-  await cargarImagenes();
-});
+    console.log('Polígonos agregados, cargando imágenes...');
+    cargarImagenes();
+    
+  } catch (error) {
+    console.error('Error agregando polígonos:', error);
+  }
+}
 
 // 📍 Cargar imágenes y agregar marcadores
 async function cargarImagenes() {
@@ -454,98 +464,107 @@ async function cargarImagenes() {
       return;
     }
 
-    console.log('Imágenes cargadas de Supabase:', data);
+    console.log('Imágenes cargadas de Supabase:', data?.length || 0);
 
     // Limpiar marcadores anteriores
     marcadores.forEach(marker => marker.remove());
     marcadores = [];
 
-    let imagenesConCoordenadas = 0;
     let imagenesPublicadas = 0;
 
-    data.forEach(img => {
-      console.log('Procesando imagen:', img);
-      
-      // Verificar si tiene coordenadas
-      if (img.lat && img.lng) {
-        imagenesConCoordenadas++;
-        console.log(`Imagen con coordenadas: ${img.planta_id} - Lat: ${img.lat}, Lng: ${img.lng}`);
-      }
-
-      // Agregar marcador al mapa si tiene coordenadas y está publicada
-      if (img.lat && img.lng && img.estado === 'publicada') {
-        imagenesPublicadas++;
-        
-        // ✅ CORREGIDO: Usar url_imagen en lugar de imagen_url
-        const imageUrl = img.url_imagen || 'https://via.placeholder.com/300x200/4a7c59/ffffff?text=Imagen+no+disponible';
-        
-        console.log(`Agregando marcador para: ${img.planta_id} en ${img.lat}, ${img.lng}`);
-        
-        const marker = new mapboxgl.Marker({
-          color: '#1db954'
-        })
-          .setLngLat([img.lng, img.lat])
-          .setPopup(
-            new mapboxgl.Popup({ offset: 25 })
-              .setHTML(`
-                <div style="max-width: 300px; padding: 10px;">
-                  <img src="${imageUrl}" alt="Imagen" 
-                       style="width: 100%; border-radius: 8px; margin-bottom: 10px; height: 150px; object-fit: cover;" 
-                       onerror="this.src='https://via.placeholder.com/300x200/4a7c59/ffffff?text=Imagen+no+disponible'" />
-                  <h4 style="margin: 0 0 8px 0; color: #333; font-size: 16px;">
-                    ${img.planta_id || 'Imagen de la Cuenca'}
-                  </h4>
-                  ${img.description ? `
-                    <p style="margin: 0 0 8px 0; color: #666; font-size: 14px; line-height: 1.4;">
-                      ${img.description}
+    if (data) {
+      data.forEach(img => {
+        if (img.lat && img.lng && img.estado === 'publicada') {
+          imagenesPublicadas++;
+          
+          const imageUrl = img.url_imagen || 'https://via.placeholder.com/300x200/4a7c59/ffffff?text=Imagen+no+disponible';
+          
+          const marker = new mapboxgl.Marker({ color: '#1db954' })
+            .setLngLat([img.lng, img.lat])
+            .setPopup(
+              new mapboxgl.Popup({ offset: 25 })
+                .setHTML(`
+                  <div style="max-width: 300px; padding: 10px;">
+                    <img src="${imageUrl}" alt="Imagen" 
+                         style="width: 100%; border-radius: 8px; margin-bottom: 10px; height: 150px; object-fit: cover;" 
+                         onerror="this.src='https://via.placeholder.com/300x200/4a7c59/ffffff?text=Imagen+no+disponible'" />
+                    <h4 style="margin: 0 0 8px 0; color: #333; font-size: 16px;">
+                      ${img.planta_id || 'Imagen de la Cuenca'}
+                    </h4>
+                    ${img.description ? `
+                      <p style="margin: 0 0 8px 0; color: #666; font-size: 14px; line-height: 1.4;">
+                        ${img.description}
+                      </p>
+                    ` : ''}
+                    <p style="margin: 0; color: #888; font-size: 12px;">
+                      📍 ${img.lat?.toFixed(6)}, ${img.lng?.toFixed(6)}
                     </p>
-                  ` : ''}
-                  <p style="margin: 0; color: #888; font-size: 12px;">
-                    📍 ${img.lat?.toFixed(6)}, ${img.lng?.toFixed(6)}
-                  </p>
-                  <p style="margin: 5px 0 0 0; color: #999; font-size: 11px;">
-                    Subido por: ${img.nombre_usuario || 'Anónimo'}
-                  </p>
-                </div>
-              `)
-          )
-          .addTo(map);
+                    <p style="margin: 5px 0 0 0; color: #999; font-size: 11px;">
+                      Subido por: ${img.nombre_usuario || 'Anónimo'}
+                    </p>
+                  </div>
+                `)
+            )
+            .addTo(map);
 
-        marcadores.push(marker);
-      }
-    });
-
-    console.log(`Resumen: ${data.length} imágenes totales, ${imagenesConCoordenadas} con coordenadas, ${imagenesPublicadas} publicadas y agregadas al mapa`);
-    console.log(`Marcadores agregados: ${marcadores.length}`);
-
-    // Si no hay marcadores, mostrar mensaje
-    if (marcadores.length === 0) {
-      console.warn('No se encontraron imágenes con coordenadas y estado publicada');
+          marcadores.push(marker);
+        }
+      });
     }
+
+    console.log(`Marcadores agregados: ${marcadores.length}`);
 
   } catch (error) {
     console.error('Error en cargarImagenes:', error);
   }
 }
 
+// 🚨 Mostrar error si falla el mapa
+function mostrarErrorMapa() {
+  const loadingElement = document.getElementById('loadingMap');
+  if (loadingElement) {
+    loadingElement.innerHTML = `
+      <div style="text-align: center; padding: 20px;">
+        <div style="color: #ff6b6b; font-size: 48px; margin-bottom: 20px;">🗺️❌</div>
+        <h3>No se pudo cargar el mapa</h3>
+        <p>Por favor, recarga la página</p>
+        <button onclick="window.location.reload()" style="
+          background: #38A169;
+          color: white;
+          border: none;
+          padding: 12px 24px;
+          border-radius: 5px;
+          cursor: pointer;
+          margin-top: 20px;
+          font-size: 16px;
+        ">Reintentar</button>
+      </div>
+    `;
+  }
+}
+
 // 🔄 Verificar si hay un marcador específico en localStorage
 window.addEventListener('load', function() {
   const marcadorGuardado = localStorage.getItem('marcador_actual');
-  if (marcadorGuardado) {
+  if (marcadorGuardado && map) {
     const marcador = JSON.parse(marcadorGuardado);
     console.log('Marcador desde admin:', marcador);
     
-    // Centrar el mapa en el marcador
     map.flyTo({
       center: [marcador.lng, marcador.lat],
       zoom: 15,
       essential: true
     });
 
-    // Limpiar localStorage después de usar
     localStorage.removeItem('marcador_actual');
   }
 });
 
-// Función para recargar imágenes (puedes llamarla desde la consola para debug)
+// Inicializar el mapa cuando se carga la página
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('DOM cargado, inicializando mapa...');
+  inicializarMapa();
+});
+
+// Función para recargar imágenes
 window.recargarImagenes = cargarImagenes;
