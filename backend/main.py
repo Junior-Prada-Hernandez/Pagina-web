@@ -1,6 +1,8 @@
 from typing import Union, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from supabase import create_client, Client
 import os
 from dotenv import load_dotenv
@@ -93,17 +95,50 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
         return None
 
 # =============================================================================
-# ENDPOINTS BÁSICOS - SIN SERVIR ARCHIVOS HTML
+# SERVIR ARCHIVOS ESTÁTICOS - CORREGIDO PARA RENDER
 # =============================================================================
 
+# En Render, main.py está en /backend/, los archivos HTML están en la raíz
+BASE_DIR = Path(__file__).parent.parent  # Sube un nivel para llegar a la raíz
+
+print(f"📁 Directorio base detectado: {BASE_DIR}")
+
+# Servir archivos estáticos (CSS, JS, imágenes)
+app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
+
+# Servir páginas HTML
 @app.get("/")
 async def read_root():
-    return {
-        "message": "API Cuenca Ubate funcionando", 
-        "status": "online",
-        "timestamp": datetime.now().isoformat(),
-        "database": "connected" if supabase else "disconnected"
+    html_path = BASE_DIR / "index.html"
+    print(f"📄 Sirviendo index.html desde: {html_path}")
+    if html_path.exists():
+        return FileResponse(html_path)
+    else:
+        raise HTTPException(status_code=404, detail="index.html no encontrado")
+
+@app.get("/{page_name}")
+async def serve_page(page_name: str):
+    # Lista de páginas válidas (sin .html)
+    valid_pages = {
+        "identificador-plantas", "galeria_completa", "plantas_guardadas",
+        "suscripcion", "contactos", "login", "bienvenido", "mapa", "Mapa"
     }
+    
+    if page_name in valid_pages:
+        file_path = BASE_DIR / f"{page_name}.html"
+        print(f"📄 Sirviendo {page_name}.html desde: {file_path}")
+    else:
+        file_path = BASE_DIR / page_name
+    
+    if file_path.exists():
+        return FileResponse(file_path)
+    
+    # Si no encuentra, devolver el index
+    return FileResponse(BASE_DIR / "index.html")
+
+# =============================================================================
+# ENDPOINTS BÁSICOS
+# =============================================================================
 
 @app.get("/api/health")
 def health_check():
@@ -115,7 +150,7 @@ def health_check():
     }
 
 # =============================================================================
-# IDENTIFICACIÓN DE PLANTAS - SOLO EL ENDPOINT API
+# IDENTIFICACIÓN DE PLANTAS
 # =============================================================================
 
 @app.post("/identify-plant")
@@ -185,7 +220,84 @@ async def identify_plant(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 # =============================================================================
-# ENDPOINTS DE CONSULTA (mantén los mismos que tenías)
+# GESTIÓN DE IMÁGENES
+# =============================================================================
+
+@app.post("/upload")
+async def upload_image(
+    file: UploadFile = File(...),
+    planta_id: str = Form("planta-desconocida"),
+    nombre_usuario: str = Form("usuario_web"),
+    description: str = Form(""),
+    lat: Optional[float] = Form(None),
+    lng: Optional[float] = Form(None)
+):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Error de conexión a Supabase")
+    
+    try:
+        file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+        unique_filename = f"{uuid.uuid4()}.{file_extension}"
+        file_path = f"public/{unique_filename}"
+        
+        file_content = await file.read()
+        
+        upload_response = supabase.storage.from_(BUCKET_NAME).upload(
+            path=file_path,
+            file=file_content
+        )
+        
+        if hasattr(upload_response, 'error') and upload_response.error:
+            raise Exception(f"Error subiendo imagen: {upload_response.error.message}")
+        
+        public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path)
+        
+        image_data = {
+            "filename": unique_filename,
+            "nombre_usuario": nombre_usuario,
+            "planta_id": planta_id,
+            "url_imagen": public_url,
+            "estado": "pendiente",
+            "fecha_subida": datetime.now().isoformat(),
+            "lat": lat,
+            "lng": lng,
+            "tipo_publicacion": "galeria"
+        }
+        
+        if description:
+            image_data["description"] = description
+        
+        db_response = supabase.table("imagenes").insert(image_data).execute()
+        
+        if hasattr(db_response, 'error') and db_response.error:
+            error_msg = str(db_response.error)
+            if "description" in error_msg:
+                image_data.pop("description", None)
+                db_response = supabase.table("imagenes").insert(image_data).execute()
+            elif "lat" in error_msg or "lng" in error_msg:
+                image_data.pop("lat", None)
+                image_data.pop("lng", None)
+                db_response = supabase.table("imagenes").insert(image_data).execute()
+            elif "tipo_publicacion" in error_msg:
+                image_data.pop("tipo_publicacion", None)
+                db_response = supabase.table("imagenes").insert(image_data).execute()
+                
+            if hasattr(db_response, 'error') and db_response.error:
+                raise Exception(f"Error guardando datos: {db_response.error.message}")
+        
+        return {
+            "success": True,
+            "message": f"Imagen guardada para planta {planta_id}",
+            "planta_id": planta_id,
+            "filename": unique_filename,
+            "public_url": public_url
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+# =============================================================================
+# ENDPOINTS DE CONSULTA
 # =============================================================================
 
 @app.get("/list-images")
@@ -233,7 +345,249 @@ async def get_map_images():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error obteniendo imágenes: {str(e)}")
 
-# ... (mantén todos los otros endpoints que tenías)
+@app.get("/imagenes-noticias")
+async def get_imagenes_noticias():
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        response = supabase.table("imagenes").select("*").execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error obteniendo imágenes: {response.error.message}")
+        
+        imagenes_noticias = [
+            img for img in response.data 
+            if img.get('tipo_publicacion') == 'noticias' and 
+               img.get('estado') == 'publicada'
+        ]
+        
+        return {
+            "count": len(imagenes_noticias),
+            "images": imagenes_noticias
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error obteniendo imágenes noticias: {str(e)}")
+
+# =============================================================================
+# ADMINISTRACIÓN
+# =============================================================================
+
+@app.delete("/delete-image/{image_id}")
+async def delete_image(image_id: int):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        image_data = supabase.table("imagenes").select("*").eq("id", image_id).execute()
+        
+        if not image_data.data:
+            raise HTTPException(status_code=404, detail="Imagen no encontrada")
+        
+        filename = image_data.data[0]["filename"]
+        file_path = f"public/{filename}"
+        
+        storage_response = supabase.storage.from_(BUCKET_NAME).remove([file_path])
+        db_response = supabase.table("imagenes").delete().eq("id", image_id).execute()
+        
+        return {
+            "success": True,
+            "message": "Imagen eliminada correctamente",
+            "deleted_filename": filename
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/cambiar-estado/{image_id}")
+async def cambiar_estado_imagen(image_id: int, nuevo_estado: str):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        estados_validos = ['pendiente', 'publicada', 'rechazada', 'activo']
+        if nuevo_estado not in estados_validos:
+            raise HTTPException(status_code=400, detail="Estado no válido")
+        
+        response = supabase.table("imagenes").update({"estado": nuevo_estado}).eq("id", image_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error actualizando estado: {response.error.message}")
+        
+        return {
+            "success": True,
+            "message": f"Estado cambiado a {nuevo_estado}",
+            "nuevo_estado": nuevo_estado
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/editar-imagen/{image_id}")
+async def editar_imagen(
+    image_id: int,
+    nuevo_nombre: str,
+    nueva_descripcion: str = None,
+    nueva_lat: float = None,
+    nueva_lng: float = None,
+    tipo_publicacion: str = "galeria"
+):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        tipos_validos = ['galeria', 'noticias']
+        if tipo_publicacion not in tipos_validos:
+            raise HTTPException(status_code=400, detail="Tipo de publicación no válido")
+        
+        update_data = {
+            "planta_id": nuevo_nombre,
+            "description": nueva_descripcion,
+            "lat": nueva_lat,
+            "lng": nueva_lng,
+            "tipo_publicacion": tipo_publicacion
+        }
+        
+        update_data = {k: v for k, v in update_data.items() if v is not None}
+        
+        response = supabase.table("imagenes").update(update_data).eq("id", image_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            error_msg = str(response.error)
+            if "tipo_publicacion" in error_msg:
+                update_data.pop("tipo_publicacion", None)
+                response = supabase.table("imagenes").update(update_data).eq("id", image_id).execute()
+            
+            if hasattr(response, 'error') and response.error:
+                raise Exception(f"Error actualizando imagen: {response.error.message}")
+        
+        if response.data:
+            return {
+                "success": True, 
+                "message": "Imagen actualizada correctamente",
+                "updated_fields": list(update_data.keys())
+            }
+        else:
+            return {"success": False, "message": "No se pudo actualizar la imagen"}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+# =============================================================================
+# SUSCRIPTORES
+# =============================================================================
+
+@app.post("/suscribir")
+async def suscribir_usuario(nombre: str = Form(...), email: str = Form(...)):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        if not "@" in email or not "." in email:
+            raise HTTPException(status_code=400, detail="Email no válido")
+        
+        existing = supabase.table("suscriptores").select("*").eq("email", email).execute()
+        
+        if existing.data:
+            return {
+                "success": False,
+                "message": "Este email ya está suscrito",
+                "email": email
+            }
+        
+        suscriptor_data = {
+            "nombre": nombre,
+            "email": email,
+            "fecha_registro": datetime.now().isoformat(),
+            "activo": True
+        }
+        
+        response = supabase.table("suscriptores").insert(suscriptor_data).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error guardando suscriptor: {response.error.message}")
+        
+        return {
+            "success": True,
+            "message": f"¡Gracias {nombre}! Te has suscrito exitosamente."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en suscripción: {str(e)}")
+
+@app.get("/suscriptores")
+async def obtener_suscriptores():
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        response = supabase.table("suscriptores").select("*").order("fecha_registro", desc=True).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error obteniendo suscriptores: {response.error.message}")
+        
+        return {
+            "success": True,
+            "count": len(response.data),
+            "suscriptores": response.data
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error obteniendo suscriptores: {str(e)}")
+
+@app.delete("/eliminar-suscriptor/{suscriptor_id}")
+async def eliminar_suscriptor(suscriptor_id: int):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        response = supabase.table("suscriptores").delete().eq("id", suscriptor_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error eliminando suscriptor: {response.error.message}")
+        
+        return {"success": True, "message": "Suscriptor eliminado correctamente"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error eliminando suscriptor: {str(e)}")
+
+# =============================================================================
+# AUTENTICACIÓN
+# =============================================================================
+
+@app.post("/login")
+async def login_admin(nombre_usuario: str = Form(...), contraseña: str = Form(...)):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        user = authenticate_user(nombre_usuario, contraseña)
+        if not user:
+            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+        
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user["nombre de usuario"], "id": user["id"]}, 
+            expires_delta=access_token_expires
+        )
+        
+        supabase.table("usuarios_administradores").update({
+            "actualizado_at": datetime.now().isoformat()
+        }).eq("id", user["id"]).execute()
+        
+        return {
+            "success": True,
+            "access_token": access_token,
+            "token_type": "bearer",
+            "nombre_usuario": user["nombre de usuario"],
+            "id": user["id"]
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en login: {str(e)}")
 
 # =============================================================================
 # CONFIGURACIÓN API KEYS
@@ -256,10 +610,12 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     
     print("\n" + "="*60)
-    print("🚀 API CUENCA UBATÉ - SOLO ENDPOINTS")
+    print("🚀 INICIANDO SERVIDOR FASTAPI - CUENCA UBATÉ (RENDER)")
     print("="*60)
+    print(f"📁 Directorio base: {BASE_DIR}")
     print(f"🌐 URL: http://0.0.0.0:{port}")
     print(f"📚 Documentación: http://0.0.0.0:{port}/docs") 
     print("❤️  Health Check: /api/health")
+    print("🔐 Login: /login")
     print("🔍 Identificar Plantas: /identify-plant")
     uvicorn.run(app, host="0.0.0.0", port=port)
