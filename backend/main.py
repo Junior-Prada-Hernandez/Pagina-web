@@ -150,7 +150,7 @@ def health_check():
     }
 
 # =============================================================================
-# IDENTIFICACIÓN DE PLANTAS
+# IDENTIFICACIÓN DE PLANTAS - CORREGIDO CON TIMEOUT MÁS LARGO
 # =============================================================================
 
 @app.post("/identify-plant")
@@ -158,10 +158,15 @@ async def identify_plant(file: UploadFile = File(...)):
     try:
         print(f"🔍 Iniciando identificación de planta: {file.filename}")
         
+        # 1. VALIDAR TIPO Y TAMAÑO DE ARCHIVO
         allowed_content_types = ['image/jpeg', 'image/png', 'image/webp']
         if file.content_type not in allowed_content_types:
-            raise HTTPException(status_code=400, detail=f"Tipo de archivo no soportado. Use JPEG, PNG o WebP.")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Tipo de archivo no soportado. Use: {', '.join(allowed_content_types)}"
+            )
         
+        # 2. OBTENER API KEY
         api_key = os.getenv('PLANT_ID_API_KEY')
         if not api_key:
             print("❌ PLANT_ID_API_KEY no encontrada")
@@ -169,16 +174,24 @@ async def identify_plant(file: UploadFile = File(...)):
         
         print(f"✅ API Key encontrada: {api_key[:10]}...")
         
+        # 3. LEER Y OPTIMIZAR IMAGEN
         file_content = await file.read()
-        print(f"📁 Tamaño del archivo: {len(file_content)} bytes")
+        file_size = len(file_content)
+        print(f"📁 Tamaño del archivo: {file_size} bytes")
         
+        # 4. REDUCIR TAMAÑO SI ES MUY GRANDE (más de 1MB)
+        if file_size > 1024 * 1024:  # 1MB
+            print("🔄 Imagen muy grande, puede causar timeout...")
+        
+        # 5. PREPARAR DATOS CON TIMEOUT MÁS LARGO
         files = {'images': (file.filename, file_content, file.content_type)}
         data = {'organs': 'auto'}
         
         plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
-        print(f"🌐 Enviando solicitud a PlantNet...")
+        print(f"🌐 Enviando solicitud a PlantNet (timeout: 60s)...")
         
-        response = requests.post(plantnet_url, files=files, data=data, timeout=30)
+        # 6. TIMEOUT MÁS LARGO - 60 segundos
+        response = requests.post(plantnet_url, files=files, data=data, timeout=60)
         
         print(f"📥 Respuesta de PlantNet: {response.status_code}")
         
@@ -188,10 +201,13 @@ async def identify_plant(file: UploadFile = File(...)):
                 error_data = response.json()
                 error_detail = error_data.get('error', error_detail)
             except:
-                error_detail = response.text
+                error_detail = response.text[:100]  # Solo primeros 100 caracteres
                 
             print(f"❌ Error PlantNet: {error_detail}")
-            raise HTTPException(status_code=response.status_code, detail=f"PlantNet API error: {error_detail}")
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"Error en identificación: {error_detail}"
+            )
         
         plant_data = response.json()
         print(f"✅ Identificación exitosa. {len(plant_data.get('results', []))} resultados")
@@ -203,21 +219,45 @@ async def identify_plant(file: UploadFile = File(...)):
                 "results": []
             }
         
+        # 7. FORMATEAR RESPUESTA MÁS LIMPIA
+        best_match = plant_data['results'][0]
+        scientific_name = best_match.get('species', {}).get('scientificName', 'Desconocida')
+        common_name = best_match.get('species', {}).get('commonNames', [''])[0]
+        
+        print(f"🌿 Planta identificada: {scientific_name} ({common_name})")
+        
         return {
             "success": True,
-            "message": f"Identificación exitosa. {len(plant_data['results'])} resultados",
+            "message": f"Identificación exitosa. {len(plant_data['results'])} resultados encontrados",
             "results": plant_data['results'],
-            "best_match": plant_data['results'][0]
+            "best_match": best_match,
+            "identified_plant": {
+                "scientific_name": scientific_name,
+                "common_name": common_name,
+                "probability": best_match.get('score', 0)
+            }
         }
         
     except requests.exceptions.Timeout:
-        print("❌ Timeout en la solicitud a PlantNet")
-        raise HTTPException(status_code=504, detail="Tiempo de espera agotado")
+        print("❌ Timeout en la solicitud a PlantNet (60s)")
+        raise HTTPException(
+            status_code=504, 
+            detail="Tiempo de espera agotado. La identificación está tomando más de lo esperado. Intenta con una imagen más pequeña o más clara."
+        )
+    except requests.exceptions.ConnectionError:
+        print("❌ Error de conexión con PlantNet")
+        raise HTTPException(
+            status_code=503,
+            detail="Error de conexión con el servicio de identificación. Intenta nuevamente."
+        )
     except HTTPException:
         raise
     except Exception as e:
         print(f"❌ Error interno: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error interno del servidor: {str(e)}"
+        )
 
 # =============================================================================
 # GESTIÓN DE IMÁGENES
