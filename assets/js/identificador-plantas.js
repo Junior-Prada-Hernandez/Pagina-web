@@ -1,6 +1,5 @@
 // assets/js/identificador-plantas.js
 
-// ✅ CORREGIDO - Sin puerto para Render
 const API_BASE = 'https://pagina-web-2p69.onrender.com';
 
 // Variables para las API keys (se obtendrán del backend)
@@ -435,3 +434,4 @@ function resetForm() {
     currentPlantData = null;
     currentPlantImage = null;
 }
+
