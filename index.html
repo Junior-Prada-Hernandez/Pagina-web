@@ -57,14 +57,18 @@
         </div>
     </section>
 
-    <!-- Sección del Mapa -->
+    <!-- Sección del Mapa - ENLACE CORREGIDO -->
     <section class="services contenedor" id="Mapa">
         <div class="plant-decoration section-plant"></div>
         <h2 class="subtitulo">Mapa</h2>
         <div class="contenedor-servicio">
             <div class="mapa-container">
-                <a href="mapa.html" target="_blank">
+                <!-- 🔥 ENLACE CORREGIDO: Quitar target="_blank" y usar ruta relativa -->
+                <a href="./mapa.html">
                     <img src="assets/img/mapa.PNG" alt="Mapa Cuenca Ubaté" class="mapa-imagen">
+                    <div class="mapa-overlay">
+                        <span>Haz clic para ver el mapa completo</span>
+                    </div>
                 </a>
             </div>
             <div class="checklist-servicio">
@@ -99,6 +103,7 @@
         </div>
     </section>
 
+    <!-- Resto del código se mantiene igual -->
     <!-- Galería Modificada -->
     <section class="gallery" id="Galeria">
         <div class="plant-decoration gallery-plant"></div>
@@ -114,18 +119,18 @@
         </div>
     </section>
 
-<!-- Sección de Noticias -->
-<section class="news contenedor" id="Noticias">
-    <div class="plant-decoration news-plant"></div>
-    <h2 class="subtitulo">Noticias de la Cuenca</h2>
-    <div class="noticias-container" id="noticiasContainer">
-        <!-- Las noticias se cargarán aquí dinámicamente como carrusel -->
-    </div>
-</section>
+    <!-- Sección de Noticias -->
+    <section class="news contenedor" id="Noticias">
+        <div class="plant-decoration news-plant"></div>
+        <h2 class="subtitulo">Noticias de la Cuenca</h2>
+        <div class="noticias-container" id="noticiasContainer">
+            <!-- Las noticias se cargarán aquí dinámicamente como carrusel -->
+        </div>
+    </section>
 
     <!-- Lightbox -->
     <div class="imagen-light">
-        <img src="img/close.svg" alt="Cerrar" class="close">
+        <img src="assets/img/close.svg" alt="Cerrar" class="close">
         <img src="" alt="" class="agregar-imagen">
         <div class="image-info">
             <h3 class="image-title"></h3>
@@ -171,5 +176,3 @@
     <script src="assets/js/inicio.js"></script>
 </body>
 </html>
-
-
