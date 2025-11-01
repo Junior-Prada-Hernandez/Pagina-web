@@ -1,12 +1,18 @@
 from typing import Union, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from supabase import create_client, Client
 import os
 from dotenv import load_dotenv
 from datetime import datetime
 import uuid
 import requests
+from passlib.context import CryptContext
+from datetime import timedelta
+from jose import JWTError, jwt
+from pathlib import Path
 from io import BytesIO
 from PIL import Image
 import logging
@@ -56,35 +62,91 @@ else:
     logger.warning("⚠️  Supabase no configurado")
 
 # =============================================================================
-# COMPRESIÓN INTELIGENTE DE IMÁGENES (TRANSPARENTE)
+# CONFIGURACIÓN AUTENTICACIÓN
+# =============================================================================
+
+SECRET_KEY = os.getenv("SECRET_KEY", "clave-temporal")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def authenticate_user(username: str, password: str) -> Optional[dict]:
+    try:
+        response = supabase.table("usuarios_administradores").select("*").eq("nombre de usuario", username).execute()
+        if hasattr(response, 'error') and response.error:
+            return None
+        if not response.data:
+            return None
+        user = response.data[0]
+        if not verify_password(password, user["contraseña_hash"]):
+            return None
+        return user
+    except Exception as e:
+        logger.error(f"Error en autenticación: {e}")
+        return None
+
+# =============================================================================
+# SERVIR ARCHIVOS ESTÁTICOS
+# =============================================================================
+
+BASE_DIR = Path(__file__).parent.parent
+logger.info(f"📁 Directorio base: {BASE_DIR}")
+
+app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
+
+@app.get("/")
+async def read_root():
+    return FileResponse(BASE_DIR / "index.html")
+
+@app.get("/{page_name}")
+async def serve_page(page_name: str):
+    valid_pages = {
+        "identificador-plantas", "galeria_completa", "plantas_guardadas",
+        "suscripcion", "contactos", "login", "bienvenido", "mapa", "Mapa"
+    }
+    
+    if page_name in valid_pages:
+        file_path = BASE_DIR / f"{page_name}.html"
+    else:
+        file_path = BASE_DIR / page_name
+    
+    if file_path.exists():
+        return FileResponse(file_path)
+    
+    return FileResponse(BASE_DIR / "index.html")
+
+# =============================================================================
+# COMPRESIÓN INTELIGENTE DE IMÁGENES
 # =============================================================================
 
 class ImageCompressor:
     """Compresor de imágenes inteligente y transparente"""
     
     @staticmethod
-    def should_compress(image_size: int, max_size: int = 2 * 1024 * 1024) -> bool:
-        """Determina si una imagen necesita compresión"""
-        return image_size > max_size
-    
-    @staticmethod
     def compress_image(
         image_data: bytes, 
-        max_dimension: int = 1200,
-        quality: int = 85,
+        max_dimension: int = 1600,
+        quality: int = 80,
         format: str = 'JPEG'
     ) -> tuple[bytes, str, dict]:
         """
         Comprime una imagen de forma inteligente manteniendo la calidad
-        
-        Args:
-            image_data: Bytes de la imagen original
-            max_dimension: Dimensión máxima (ancho o alto)
-            quality: Calidad de compresión (1-100)
-            format: Formato de salida
-            
-        Returns:
-            tuple: (imagen_comprimida, content_type, info_compresion)
         """
         try:
             # Abrir imagen original
@@ -102,8 +164,7 @@ class ImageCompressor:
                     "compressed": False,
                     "original_size_kb": original_size // 1024,
                     "compressed_size_kb": original_size // 1024,
-                    "reduction": "0%",
-                    "quality": "original"
+                    "reduction": "0%"
                 }
             
             # Convertir a RGB si es necesario (para JPEG)
@@ -152,9 +213,7 @@ class ImageCompressor:
                 "reduction": f"{reduction:.1f}%",
                 "quality": f"{quality}%",
                 "original_dimensions": f"{original_width}x{original_height}",
-                "compressed_dimensions": f"{new_width}x{new_height}",
-                "format_original": original_format,
-                "format_compressed": format
+                "compressed_dimensions": f"{new_width}x{new_height}"
             }
             
         except Exception as e:
@@ -166,21 +225,34 @@ class ImageCompressor:
             }
 
 # =============================================================================
-# ENDPOINT MEJORADO CON COMPRESIÓN TRANSPARENTE
+# ENDPOINTS BÁSICOS
+# =============================================================================
+
+@app.get("/api/health")
+def health_check():
+    return {
+        "status": "healthy", 
+        "timestamp": datetime.now().isoformat(),
+        "service": "Cuenca Ubate API",
+        "database": "connected" if supabase else "disconnected"
+    }
+
+# =============================================================================
+# IDENTIFICACIÓN DE PLANTAS CON COMPRESIÓN AUTOMÁTICA
 # =============================================================================
 
 @app.post("/identify-plant")
 async def identify_plant(file: UploadFile = File(...)):
     """
-    🔍 Identificación de plantas CON COMPRESIÓN AUTOMÁTICA
+    🔍 Identificación CON COMPRESIÓN AUTOMÁTICA
     - Comprime imágenes grandes automáticamente
-    - Mantiene calidad suficiente para identificación
-    - El usuario no nota la compresión
+    - Timeout reducido gracias a compresión
+    - Completamente transparente para el usuario
     """
     try:
         logger.info(f"🔍 Iniciando identificación: {file.filename}")
         
-        # 1. VALIDAR TIPO DE ARCHIVO
+        # 1. VALIDACIÓN SOLO DE TIPO (NO DE TAMAÑO)
         allowed_types = ['image/jpeg', 'image/png', 'image/webp']
         if file.content_type not in allowed_types:
             raise HTTPException(400, "Solo se permiten imágenes JPEG, PNG o WebP")
@@ -193,14 +265,7 @@ async def identify_plant(file: UploadFile = File(...)):
         
         # 3. COMPRESIÓN INTELIGENTE Y TRANSPARENTE
         compressor = ImageCompressor()
-        
-        # Comprimir imagen (se decide automáticamente si es necesario)
-        compressed_content, content_type, compression_info = compressor.compress_image(
-            original_content,
-            max_dimension=1600,  # Máximo 1600px en la dimensión más grande
-            quality=80,          # 80% de calidad (balance perfecto)
-            format='JPEG'        # Convertir todo a JPEG para mejor compresión
-        )
+        compressed_content, content_type, compression_info = compressor.compress_image(original_content)
         
         compressed_size = len(compressed_content)
         
@@ -213,18 +278,14 @@ async def identify_plant(file: UploadFile = File(...)):
             logger.error("❌ PLANT_ID_API_KEY no configurada")
             raise HTTPException(500, "Servicio de identificación no disponible")
         
+        logger.info(f"✅ API Key encontrada")
+        
         # 5. PREPARAR Y ENVIAR SOLICITUD CON IMAGEN COMPRIMIDA
-        files = {
-            'images': (
-                f"compressed_{file.filename}",  # Nombre diferente pero el usuario no lo ve
-                compressed_content, 
-                content_type
-            )
-        }
+        files = {'images': (file.filename, compressed_content, content_type)}
         data = {'organs': 'auto'}
         
         plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
-        logger.info("🌐 Enviando imagen comprimida a PlantNet...")
+        logger.info(f"🌐 Enviando a PlantNet...")
         
         # 6. TIMEOUT REDUCIDO (gracias a la compresión)
         timeout = 45  # 45 segundos en lugar de 90
@@ -246,7 +307,7 @@ async def identify_plant(file: UploadFile = File(...)):
             logger.error(f"❌ Error PlantNet: {error_detail}")
             
             if response.status_code == 413:
-                raise HTTPException(400, "Imagen demasiado grande incluso después de compresión")
+                raise HTTPException(400, "Imagen demasiado grande para el servicio PlantNet")
             elif response.status_code == 429:
                 raise HTTPException(429, "Demasiadas solicitudes. Espera unos minutos.")
             else:
@@ -263,12 +324,12 @@ async def identify_plant(file: UploadFile = File(...)):
                 "success": True,
                 "message": "No se pudo identificar la planta con certeza. Intenta con una imagen más clara y enfocada.",
                 "results": [],
-                "compression_info": compression_info,  # 🔥 INFO DE COMPRESIÓN
+                "compression_info": compression_info,
                 "performance": {
                     "original_size_kb": original_size // 1024,
                     "processed_size_kb": compressed_size // 1024,
                     "processing_time": f"{request_time:.1f}s",
-                    "timeout_used": f"{timeout}s"
+                    "platform": "Render con compresión"
                 }
             }
         
@@ -294,12 +355,12 @@ async def identify_plant(file: UploadFile = File(...)):
                 "probability": probability,
                 "confidence": f"{probability*100:.1f}%"
             },
-            "compression_info": compression_info,  # 🔥 INFO DE COMPRESIÓN (opcional mostrar al usuario)
+            "compression_info": compression_info,
             "performance": {
                 "original_size_kb": original_size // 1024,
                 "processed_size_kb": compressed_size // 1024,
                 "processing_time": f"{request_time:.1f}s",
-                "time_saved": "significativo" if compression_info.get('compressed') else "mínimo"
+                "platform": "Render con compresión"
             }
         }
         
@@ -307,7 +368,7 @@ async def identify_plant(file: UploadFile = File(...)):
         logger.error("❌ Timeout en PlantNet (45s)")
         raise HTTPException(
             504, 
-            "La identificación está tomando demasiado tiempo. Intenta con una imagen más pequeña o espera e intenta nuevamente."
+            "La identificación está tomando demasiado tiempo. Esto puede pasar con imágenes muy grandes. Puedes intentar con una imagen más pequeña o esperar e intentar nuevamente."
         )
     except requests.exceptions.ConnectionError:
         logger.error("❌ Error de conexión con PlantNet")
@@ -326,8 +387,7 @@ async def identify_plant(file: UploadFile = File(...)):
 async def identify_fast(file: UploadFile = File(...)):
     """
     🚀 Versión RÁPIDA con compresión más agresiva
-    - Compresión máxima para velocidad
-    - Ideal para imágenes muy grandes
+    - Para cuando quieras resultados más rápidos
     """
     try:
         logger.info(f"🚀 Iniciando identificación RÁPIDA")
@@ -349,12 +409,12 @@ async def identify_fast(file: UploadFile = File(...)):
         if not api_key:
             raise HTTPException(500, "Servicio no disponible")
         
-        files = {'images': (f"fast_{file.filename}", compressed_content, content_type)}
+        files = {'images': (file.filename, compressed_content, content_type)}
         data = {'organs': 'auto'}
         
         plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
         
-        # Timeout muy corto para modo rápido
+        # Timeout más corto para modo rápido
         response = requests.post(plantnet_url, files=files, data=data, timeout=30)
         
         if response.status_code != 200:
@@ -363,12 +423,19 @@ async def identify_fast(file: UploadFile = File(...)):
         plant_data = response.json()
         results = plant_data.get('results', [])
         
+        if not results:
+            return {
+                "success": True,
+                "message": "No identificado en modo rápido",
+                "results": [],
+                "mode": "fast"
+            }
+        
         return {
             "success": True,
-            "message": "¡Identificación rápida exitosa!" if results else "No identificado en modo rápido",
+            "message": "¡Identificación rápida exitosa!",
             "results": results[:2],
-            "best_match": results[0] if results else None,
-            "compression_info": compression_info,
+            "best_match": results[0],
             "mode": "fast"
         }
         
@@ -378,27 +445,157 @@ async def identify_fast(file: UploadFile = File(...)):
         raise HTTPException(500, f"Error rápido: {str(e)}")
 
 # =============================================================================
-# ENDPOINTS ADICIONALES (MANTENER LOS QUE YA TENÍAS)
+# MANTENER TODOS LOS ENDPOINTS ORIGINALES (EXACTAMENTE IGUAL)
 # =============================================================================
 
-@app.get("/")
-async def read_root():
-    return {"message": "API Cuenca Ubate con compresión automática", "status": "online"}
+@app.post("/upload")
+async def upload_image(
+    file: UploadFile = File(...),
+    planta_id: str = Form("planta-desconocida"),
+    nombre_usuario: str = Form("usuario_web"),
+    description: str = Form(""),
+    lat: Optional[float] = Form(None),
+    lng: Optional[float] = Form(None)
+):
+    if not supabase:
+        raise HTTPException(500, "Error de conexión a Supabase")
+    
+    try:
+        file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+        unique_filename = f"{uuid.uuid4()}.{file_extension}"
+        file_path = f"public/{unique_filename}"
+        
+        file_content = await file.read()
+        
+        upload_response = supabase.storage.from_(BUCKET_NAME).upload(
+            path=file_path,
+            file=file_content
+        )
+        
+        if hasattr(upload_response, 'error') and upload_response.error:
+            raise Exception(f"Error subiendo imagen: {upload_response.error.message}")
+        
+        public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path)
+        
+        image_data = {
+            "filename": unique_filename,
+            "nombre_usuario": nombre_usuario,
+            "planta_id": planta_id,
+            "url_imagen": public_url,
+            "estado": "pendiente",
+            "fecha_subida": datetime.now().isoformat(),
+            "lat": lat,
+            "lng": lng,
+            "tipo_publicacion": "galeria"
+        }
+        
+        if description:
+            image_data["description"] = description
+        
+        db_response = supabase.table("imagenes").insert(image_data).execute()
+        
+        if hasattr(db_response, 'error') and db_response.error:
+            error_msg = str(db_response.error)
+            if "description" in error_msg:
+                image_data.pop("description", None)
+                db_response = supabase.table("imagenes").insert(image_data).execute()
+            elif "lat" in error_msg or "lng" in error_msg:
+                image_data.pop("lat", None)
+                image_data.pop("lng", None)
+                db_response = supabase.table("imagenes").insert(image_data).execute()
+            elif "tipo_publicacion" in error_msg:
+                image_data.pop("tipo_publicacion", None)
+                db_response = supabase.table("imagenes").insert(image_data).execute()
+                
+            if hasattr(db_response, 'error') and db_response.error:
+                raise Exception(f"Error guardando datos: {db_response.error.message}")
+        
+        return {
+            "success": True,
+            "message": f"Imagen guardada para planta {planta_id}",
+            "planta_id": planta_id,
+            "filename": unique_filename,
+            "public_url": public_url
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, f"Error: {str(e)}")
 
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy", 
-        "timestamp": datetime.now().isoformat(),
-        "features": ["compresión_automática", "identificación_plantas"],
-        "database": "connected" if supabase else "disconnected"
-    }
+@app.get("/list-images")
+async def list_images():
+    if not supabase:
+        raise HTTPException(500, "Error de conexión a Supabase")
+    
+    try:
+        response = supabase.table("imagenes").select("*").execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error obteniendo imágenes: {response.error.message}")
+        
+        return {
+            "count": len(response.data),
+            "images": response.data
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo imágenes: {str(e)}")
+
+@app.get("/map-images")
+async def get_map_images():
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        response = supabase.table("imagenes").select("*").execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error obteniendo imágenes: {response.error.message}")
+        
+        imagenes_con_coordenadas = [
+            img for img in response.data 
+            if img.get('lat') is not None and 
+               img.get('lng') is not None and 
+               img.get('estado') == 'publicada'
+        ]
+        
+        return {
+            "count": len(imagenes_con_coordenadas),
+            "images": imagenes_con_coordenadas
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo imágenes: {str(e)}")
+
+@app.get("/imagenes-noticias")
+async def get_imagenes_noticias():
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        response = supabase.table("imagenes").select("*").execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error obteniendo imágenes: {response.error.message}")
+        
+        imagenes_noticias = [
+            img for img in response.data 
+            if img.get('tipo_publicacion') == 'noticias' and 
+               img.get('estado') == 'publicada'
+        ]
+        
+        return {
+            "count": len(imagenes_noticias),
+            "images": imagenes_noticias
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo imágenes noticias: {str(e)}")
 
 @app.get("/api/keys")
 async def get_api_keys():
     return {
-        "PLANT_ID_API_KEY": "✅ Configurada" if os.getenv('PLANT_ID_API_KEY') else "❌ Faltante",
-        "DEEPSEEK_API_KEY": "✅ Configurada" if os.getenv('DEEPSEEK_API_KEY') else "❌ Faltante"
+        "PLANT_ID_API_KEY": os.getenv("PLANT_ID_API_KEY"),
+        "DEEPSEEK_API_KEY": os.getenv("DEEPSEEK_API_KEY")
     }
 
 # =============================================================================
@@ -419,9 +616,9 @@ if __name__ == "__main__":
     print("   • Mantenimiento de calidad para identificación")
     print("   • Completamente transparente para el usuario")
     print(f"🌐 URL: http://0.0.0.0:{port}")
-    print("🔍 Identificar Plantas: POST /identify-plant")
-    print("🚀 Modo Rápido: POST /identify-fast")
-    print("❤️  Health Check: GET /health")
+    print("🔍 Identificar Plantas: /identify-plant")
+    print("🚀 Modo Rápido: /identify-fast")
+    print("📊 Health Check: /api/health")
     print("="*60)
     
     uvicorn.run(app, host="0.0.0.0", port=port)
