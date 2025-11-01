@@ -1,5 +1,5 @@
 from typing import Union, Optional
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -13,6 +13,10 @@ from passlib.context import CryptContext
 from datetime import timedelta
 from jose import JWTError, jwt
 from pathlib import Path
+import asyncio
+import aiohttp
+import base64
+import json
 
 # =============================================================================
 # CONFIGURACIÓN INICIAL
@@ -138,26 +142,96 @@ def health_check():
     }
 
 # =============================================================================
-# IDENTIFICACIÓN DE PLANTAS - CON LÍMITE AUMENTADO A 4MB
+# SOLUCIÓN DEFINITIVA: IDENTIFICACIÓN CON RETRY Y OPTIMIZACIÓN
 # =============================================================================
+
+# Cache simple para evitar timeout en desarrollo
+identification_cache = {}
+
+async def make_plantnet_request(files, data, api_key, timeout=30, retries=3):
+    """
+    Función robusta para hacer requests a PlantNet con retry mechanism
+    """
+    plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
+    
+    for attempt in range(retries):
+        try:
+            print(f"🔄 Intento {attempt + 1}/{retries} - Timeout: {timeout}s")
+            
+            # Usar aiohttp para mejor performance asíncrona
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+                form_data = aiohttp.FormData()
+                
+                # Agregar archivo
+                for field_name, (filename, file_content, content_type) in files.items():
+                    form_data.add_field(field_name, file_content, filename=filename, content_type=content_type)
+                
+                # Agregar otros datos
+                for key, value in data.items():
+                    form_data.add_field(key, value)
+                
+                start_time = datetime.now()
+                async with session.post(plantnet_url, data=form_data) as response:
+                    if response.status == 200:
+                        plant_data = await response.json()
+                        request_time = (datetime.now() - start_time).total_seconds()
+                        print(f"✅ Request exitoso en {request_time:.1f}s")
+                        return plant_data
+                    else:
+                        error_text = await response.text()
+                        print(f"❌ Error HTTP {response.status}: {error_text[:100]}")
+                        
+                        # Si es error 429 (rate limit), esperar más
+                        if response.status == 429:
+                            wait_time = (attempt + 1) * 10  # Esperar 10, 20, 30 segundos
+                            print(f"⏳ Rate limit, esperando {wait_time}s...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        
+                        # Para otros errores, reintentar inmediatamente
+                        if attempt < retries - 1:
+                            await asyncio.sleep(2)  # Espera corta entre reintentos
+                            continue
+                        else:
+                            raise HTTPException(response.status, f"PlantNet error: {error_text[:100]}")
+        
+        except asyncio.TimeoutError:
+            print(f"⏰ Timeout en intento {attempt + 1}")
+            if attempt < retries - 1:
+                # Incrementar timeout en cada reintento
+                timeout += 10
+                continue
+            else:
+                raise HTTPException(504, "Timeout después de múltiples intentos")
+        
+        except aiohttp.ClientError as e:
+            print(f"🌐 Error de conexión: {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(5)
+                continue
+            else:
+                raise HTTPException(503, "Error de conexión después de múltiples intentos")
+    
+    raise HTTPException(500, "Todos los intentos fallaron")
 
 @app.post("/identify-plant")
 async def identify_plant(file: UploadFile = File(...)):
     """
-    🔍 Identificación de plantas con límite aumentado a 4MB
-    - Acepta imágenes hasta 4MB
-    - Timeout extendido para imágenes grandes
+    🔍 Identificación ROBUSTA con retry mechanism
+    - Múltiples reintentos automáticos
+    - Timeout adaptativo
+    - Manejo mejorado de errores
     """
     try:
-        print(f"🔍 Iniciando identificación: {file.filename}")
+        print(f"🔍 INICIO identificación ROBUSTA: {file.filename}")
         
         # 1. VALIDACIÓN RÁPIDA
         allowed_types = ['image/jpeg', 'image/png', 'image/webp']
         if file.content_type not in allowed_types:
             raise HTTPException(400, "Solo se permiten imágenes JPEG, PNG o WebP")
         
-        # 2. LECTURA Y VALIDACIÓN DE TAMAÑO (LÍMITE AUMENTADO A 4MB)
-        MAX_SIZE = 4 * 1024 * 1024  # 4MB máximo (aumentado desde 1MB)
+        # 2. LECTURA Y VALIDACIÓN DE TAMAÑO
+        MAX_SIZE = 4 * 1024 * 1024  # 4MB máximo
         
         file_content = await file.read()
         file_size = len(file_content)
@@ -165,65 +239,42 @@ async def identify_plant(file: UploadFile = File(...)):
         print(f"📁 Tamaño de imagen: {file_size//1024}KB")
         
         if file_size > MAX_SIZE:
-            raise HTTPException(
-                400, 
-                f"Imagen demasiado grande ({file_size//1024}KB). Máximo permitido: 4MB."
-            )
+            raise HTTPException(400, f"Imagen demasiado grande ({file_size//1024}KB). Máximo: 4MB.")
         
-        # 3. ADVERTENCIA PARA IMÁGENES GRANDES
-        if file_size > 2 * 1024 * 1024:  # Más de 2MB
-            print("⚠️  Imagen grande, puede tomar más tiempo...")
+        # 3. ESTRATEGIA DE TIMEOUT BASADA EN TAMAÑO
+        if file_size > 2 * 1024 * 1024:
+            timeout_strategy = 40  # 40s para imágenes grandes
+            print("⚠️  Imagen grande, usando timeout extendido")
+        else:
+            timeout_strategy = 25  # 25s para imágenes normales
         
         # 4. VERIFICAR API KEY
         api_key = os.getenv('PLANT_ID_API_KEY')
         if not api_key:
-            print("❌ PLANT_ID_API_KEY no configurada")
             raise HTTPException(500, "Servicio de identificación no disponible")
         
-        print(f"✅ API Key encontrada")
-        
-        # 5. PREPARAR Y ENVIAR SOLICITUD
+        # 5. PREPARAR DATOS
         files = {'images': (file.filename, file_content, file.content_type)}
         data = {'organs': 'auto'}
         
-        plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
-        print(f"🌐 Enviando a PlantNet...")
-        
-        # 6. TIMEOUT AJUSTADO SEGÚN TAMAÑO
-        # Imágenes pequeñas: 45s, imágenes grandes: 75s
-        timeout = 75 if file_size > 2 * 1024 * 1024 else 45
-        
-        start_time = datetime.now()
-        response = requests.post(plantnet_url, files=files, data=data, timeout=timeout)
-        request_time = (datetime.now() - start_time).total_seconds()
-        
-        print(f"📥 Respuesta recibida en {request_time:.1f}s")
-        
-        if response.status_code != 200:
-            error_detail = "Error desconocido"
-            try:
-                error_data = response.json()
-                error_detail = error_data.get('error', error_detail)
-            except:
-                error_detail = response.text[:100]
-                
-            print(f"❌ Error PlantNet: {error_detail}")
-            raise HTTPException(response.status_code, f"Error en identificación: {error_detail}")
+        # 6. HACER REQUEST ROBUSTA
+        start_total = datetime.now()
+        plant_data = await make_plantnet_request(files, data, api_key, timeout=timeout_strategy, retries=2)
+        total_time = (datetime.now() - start_total).total_seconds()
         
         # 7. PROCESAR RESULTADOS
-        plant_data = response.json()
         results = plant_data.get('results', [])
-        
-        print(f"✅ Identificación exitosa: {len(results)} resultados")
+        print(f"✅ Identificación completada en {total_time:.1f}s - {len(results)} resultados")
         
         if not results:
             return {
                 "success": True,
-                "message": "No se pudo identificar la planta con certeza. Intenta con una imagen más clara.",
+                "message": "No se pudo identificar la planta. Intenta con una imagen más clara o desde otro ángulo.",
                 "results": [],
                 "performance": {
                     "image_size_kb": file_size // 1024,
-                    "processing_time": f"{request_time:.1f}s"
+                    "total_time": f"{total_time:.1f}s",
+                    "strategy": "robusta"
                 }
             }
         
@@ -236,11 +287,11 @@ async def identify_plant(file: UploadFile = File(...)):
         common_name = common_names[0] if common_names else 'No disponible'
         probability = best_match.get('score', 0)
         
-        print(f"🌿 Identificada: {scientific_name} - {probability*100:.1f}% de probabilidad")
+        print(f"🌿 Identificada: {scientific_name} - {probability*100:.1f}%")
         
         return {
             "success": True,
-            "message": f"¡Planta identificada! {len(results)} resultados encontrados",
+            "message": f"¡Planta identificada exitosamente!",
             "results": results[:3],
             "best_match": best_match,
             "identified_plant": {
@@ -251,53 +302,40 @@ async def identify_plant(file: UploadFile = File(...)):
             },
             "performance": {
                 "image_size_kb": file_size // 1024,
-                "processing_time": f"{request_time:.1f}s"
+                "total_time": f"{total_time:.1f}s",
+                "strategy": "robusta con reintentos"
             }
         }
         
-    except requests.exceptions.Timeout:
-        print("❌ Timeout en PlantNet")
-        raise HTTPException(
-            504, 
-            "La identificación está tomando demasiado tiempo. Si tu imagen es muy grande (>2MB), intenta reducir su tamaño antes de subirla."
-        )
-    except requests.exceptions.ConnectionError:
-        print("❌ Error de conexión con PlantNet")
-        raise HTTPException(503, "Error de conexión con el servicio de identificación. Intenta nuevamente.")
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error interno: {str(e)}")
-        raise HTTPException(500, f"Error interno del servidor: {str(e)}")
+        print(f"❌ Error crítico: {str(e)}")
+        raise HTTPException(500, f"Error interno: {str(e)}")
 
 # =============================================================================
-# ENDPOINT PARA IMÁGENES PEQUEÑAS (RECOMENDADO)
+# ENDPOINT ULTRA-RÁPIDO (SIN RETRY)
 # =============================================================================
 
 @app.post("/identify-fast")
 async def identify_fast(file: UploadFile = File(...)):
     """
-    🚀 Versión RÁPIDA y RECOMENDADA para imágenes pequeñas
-    - Límite de 1MB (óptimo para Render)
-    - Timeout más corto
-    - Mayor probabilidad de éxito
+    🚀 Versión ULTRA-RÁPIDA sin reintentos
+    - Timeout corto
+    - Ideal para imágenes pequeñas
     """
     try:
-        print(f"🚀 Iniciando identificación RÁPIDA (recomendada)")
+        print(f"🚀 INICIO identificación ULTRA-RÁPIDA")
         
-        # LÍMITE ÓPTIMO PARA RENDER
-        MAX_FAST_SIZE = 1 * 1024 * 1024  # 1MB (óptimo)
+        MAX_SIZE = 1 * 1024 * 1024  # 1MB máximo
         
         file_content = await file.read()
         file_size = len(file_content)
         
-        if file_size > MAX_FAST_SIZE:
-            raise HTTPException(
-                400,
-                f"Para mejor rendimiento, usa imágenes menores a 1MB. Tu imagen: {file_size//1024}KB. Puedes usar el endpoint normal para imágenes más grandes."
-            )
+        if file_size > MAX_SIZE:
+            raise HTTPException(400, f"Para modo rápido: máximo 1MB. Tu imagen: {file_size//1024}KB")
         
-        print(f"📁 Tamaño óptimo: {file_size//1024}KB")
+        print(f"📁 Tamaño rápido: {file_size//1024}KB")
         
         api_key = os.getenv('PLANT_ID_API_KEY')
         if not api_key:
@@ -306,41 +344,46 @@ async def identify_fast(file: UploadFile = File(...)):
         files = {'images': (file.filename, file_content, file.content_type)}
         data = {'organs': 'auto'}
         
+        # SOLO UN INTENTO CON TIMEOUT CORTO
         plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
         
-        # TIMEOUT CORTO PARA RÁPIDO
-        response = requests.post(plantnet_url, files=files, data=data, timeout=30)
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+            form_data = aiohttp.FormData()
+            form_data.add_field('images', file_content, filename=file.filename, content_type=file.content_type)
+            form_data.add_field('organs', 'auto')
+            
+            async with session.post(plantnet_url, data=form_data) as response:
+                if response.status != 200:
+                    raise HTTPException(response.status, "Error en modo rápido")
+                
+                plant_data = await response.json()
         
-        if response.status_code != 200:
-            raise HTTPException(response.status_code, "Error en identificación rápida")
-        
-        plant_data = response.json()
         results = plant_data.get('results', [])
         
         if not results:
             return {
                 "success": True,
-                "message": "No se pudo identificar en modo rápido. Intenta con el endpoint normal.",
+                "message": "No identificado en modo rápido",
                 "results": [],
-                "mode": "fast"
+                "mode": "ultra-fast"
             }
         
         return {
             "success": True,
-            "message": "¡Identificación rápida exitosa!",
+            "message": "¡Identificación ultra-rápida exitosa!",
             "results": results[:2],
             "best_match": results[0],
-            "mode": "fast",
-            "recommendation": "Este modo es más rápido y confiable. Sigue usando imágenes <1MB para mejores resultados."
+            "mode": "ultra-fast",
+            "recommendation": "Modo óptimo para imágenes <1MB"
         }
         
-    except requests.exceptions.Timeout:
-        raise HTTPException(504, "Timeout en modo rápido. Usa imágenes más pequeñas.")
+    except asyncio.TimeoutError:
+        raise HTTPException(504, "Timeout en modo ultra-rápido")
     except Exception as e:
-        raise HTTPException(500, f"Error en modo rápido: {str(e)}")
+        raise HTTPException(500, f"Error rápido: {str(e)}")
 
 # =============================================================================
-# MANTENER TODOS LOS ENDPOINTS ORIGINALES (IGUAL QUE ANTES)
+# MANTENER TODOS LOS ENDPOINTS ORIGINALES
 # =============================================================================
 
 @app.post("/upload")
@@ -416,7 +459,7 @@ async def upload_image(
     except Exception as e:
         raise HTTPException(500, f"Error: {str(e)}")
 
-# ... (MANTENER TODOS LOS OTROS ENDPOINTS EXACTAMENTE IGUALES)
+# ... (MANTENER TODOS LOS OTROS ENDPOINTS ORIGINALES)
 
 @app.get("/list-images")
 async def list_images():
@@ -507,10 +550,10 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     
     print("\n" + "="*60)
-    print("🚀 CUENCA UBATÉ - LÍMITE AUMENTADO A 4MB")
+    print("🚀 CUENCA UBATÉ - SOLUCIÓN DEFINITIVA")
     print("="*60)
     print(f"🌐 URL: http://0.0.0.0:{port}")
-    print("🔍 Identificar Plantas: /identify-plant (hasta 4MB)")
-    print("🚀 Identificación Rápida: /identify-fast (recomendado, hasta 1MB)")
-    print("📊 Para mejores resultados: usa imágenes < 1MB")
+    print("🔍 Identificar Plantas: /identify-plant (robusto con reintentos)")
+    print("🚀 Identificación Rápida: /identify-fast (ultra-rápido)")
+    print("🔄 Características: Retry automático, timeout adaptativo")
     uvicorn.run(app, host="0.0.0.0", port=port)
