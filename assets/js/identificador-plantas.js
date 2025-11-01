@@ -1,7 +1,7 @@
 // assets/js/identificador-plantas.js
 
-// 🔥 CAMBIA ESTA CONSTANTE - AGREGA EL PUERTO :10000
-const API_BASE = 'https://pagina-web-2p69.onrender.com:10000';
+// ✅ CORREGIDO - Sin puerto para Render
+const API_BASE = 'https://pagina-web-2p69.onrender.com';
 
 // Variables para las API keys (se obtendrán del backend)
 let PLANT_ID_API_KEY = null;
@@ -54,13 +54,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     await obtenerApiKeysDelBackend();
     
     initializeEventListeners();
-    console.log('🚀 Identificador de plantas inicializado');
+    console.log('🚀 Identificador de plantas inicializado para Render');
 });
 
 // ========== OBTENER API KEYS DEL BACKEND ==========
 async function obtenerApiKeysDelBackend() {
     try {
-        // 🔥 CAMBIA ESTA URL - USA API_BASE
+        // ✅ CORREGIDO - Usar API_BASE sin puerto
         const response = await fetch(`${API_BASE}/api/keys`);
         
         if (!response.ok) {
@@ -73,7 +73,7 @@ async function obtenerApiKeysDelBackend() {
         PLANT_ID_API_KEY = keys.PLANT_ID_API_KEY;
         DEEPSEEK_API_KEY = keys.DEEPSEEK_API_KEY;
         
-        console.log('✅ API keys cargadas correctamente desde el backend');
+        console.log('✅ API keys cargadas correctamente desde el backend en Render');
         
     } catch (error) {
         console.error('❌ Error cargando API keys:', error);
@@ -88,6 +88,11 @@ function initializeEventListeners() {
     uploadArea.addEventListener('dragleave', handleDragLeave);
     uploadArea.addEventListener('drop', handleDrop);
     fileInput.addEventListener('change', handleFileSelect);
+    
+    // Eventos para botones
+    identifyBtn.addEventListener('click', identifyPlant);
+    saveWithoutIdentifyBtn.addEventListener('click', saveWithoutIdentification);
+    savePlantBtn.addEventListener('click', savePlant);
 }
 
 function handleDragOver(e) {
@@ -141,12 +146,6 @@ async function identifyPlant() {
         return;
     }
     
-    // Verificar que las API keys estén cargadas
-    if (!PLANT_ID_API_KEY) {
-        showError('Error de configuración. Las API keys no están disponibles.');
-        return;
-    }
-    
     // Mostrar indicador de carga
     loading.style.display = 'flex';
     identifyBtn.disabled = true;
@@ -157,21 +156,21 @@ async function identifyPlant() {
     savePlantBtn.style.display = 'none';
     
     try {
-        // 1. Identificar la planta con nuestro backend
+        // ✅ CORREGIDO - Usar tu backend en Render para identificación
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         
-        // 🔥 CAMBIA ESTA URL - USA API_BASE
-        const plantIdResponse = await fetch(`${API_BASE}/identify-plant`, {
+        const response = await fetch(`${API_BASE}/identify-plant`, {
             method: 'POST',
             body: formData
         });
         
-        const plantIdData = await plantIdResponse.json();
-        
-        if (!plantIdResponse.ok) {
-            throw new Error(plantIdData.detail || 'Error al identificar la planta');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Error al identificar la planta');
         }
+        
+        const plantIdData = await response.json();
         
         if (!plantIdData.results || plantIdData.results.length === 0) {
             throw new Error('No se pudo identificar la planta. Intenta con otra imagen más clara.');
@@ -192,6 +191,7 @@ async function identifyPlant() {
         
     } catch (error) {
         showError(error.message);
+        console.error('Error en identificación:', error);
     } finally {
         loading.style.display = 'none';
         identifyBtn.disabled = false;
@@ -297,14 +297,13 @@ async function saveWithoutIdentification() {
         savedPlants.unshift(plantToSave);
         localStorage.setItem('savedPlants', JSON.stringify(savedPlants));
         
-        // Guardar en Supabase usando el endpoint corregido
+        // ✅ CORREGIDO - Guardar en Supabase usando tu backend en Render
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         formData.append('planta_id', 'planta-sin-identificar');
         formData.append('nombre_usuario', 'usuario_web');
         formData.append('description', 'Planta sin identificar - guardada desde la galería');
         
-        // 🔥 CAMBIA ESTA URL - USA API_BASE
         const response = await fetch(`${API_BASE}/upload`, {
             method: 'POST',
             body: formData
@@ -362,14 +361,13 @@ async function savePlant() {
         savedPlants.unshift(plantToSave);
         localStorage.setItem('savedPlants', JSON.stringify(savedPlants));
         
-        // 2. Guardar en Supabase usando el endpoint corregido
+        // ✅ CORREGIDO - Guardar en Supabase usando tu backend en Render
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         formData.append('planta_id', currentPlantData.species.scientificName || 'planta-desconocida');
         formData.append('nombre_usuario', 'usuario_web');
         formData.append('description', `Planta identificada: ${currentPlantData.species.scientificName}`);
         
-        // 🔥 CAMBIA ESTA URL - USA API_BASE
         const response = await fetch(`${API_BASE}/upload`, {
             method: 'POST',
             body: formData
