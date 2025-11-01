@@ -9,24 +9,20 @@ from dotenv import load_dotenv
 from datetime import datetime
 import uuid
 import requests
-from passlib.context import CryptContext
-from datetime import timedelta
-from jose import JWTError, jwt
-from pathlib import Path
-from io import BytesIO
-from PIL import Image
-import logging
 
 # =============================================================================
-# CONFIGURACIÓN INICIAL
+# CONFIGURACIÓN INICIAL Y VARIABLES DE ENTORNO
 # =============================================================================
 
+# Cargar variables de entorno
 load_dotenv()
-app = FastAPI(title="Cuenca Ubate API", version="1.0.0")
 
-# Configurar logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Crear aplicación FastAPI
+app = FastAPI(
+    title="Cuenca Ubate API", 
+    version="1.0.0",
+    description="API para identificación y gestión de plantas de la Cuenca Ubaté"
+)
 
 # =============================================================================
 # CONFIGURACIÓN CORS
@@ -41,33 +37,75 @@ app.add_middleware(
 )
 
 # =============================================================================
+# SERVIR ARCHIVOS ESTÁTICOS
+# =============================================================================
+
+# Montar archivos estáticos
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+
+# Servir archivos HTML
+@app.get("/")
+async def read_index():
+    return FileResponse("index.html")
+
+@app.get("/{page_name}")
+async def read_page(page_name: str):
+    # Lista de páginas permitidas
+    paginas_permitidas = [
+        "plantas_guardadas.html", "Mapa.html", "mapa.html", 
+        "galeria_completa.html", "identificador-plantas.html",
+        "suscripcion.html", "contactos.html", "login.html",
+        "bienvenido.html"
+    ]
+    
+    if page_name in paginas_permitidas and os.path.exists(page_name):
+        return FileResponse(page_name)
+    elif page_name.endswith('.html') and os.path.exists(page_name):
+        return FileResponse(page_name)
+    else:
+        raise HTTPException(status_code=404, detail="Página no encontrada")
+
+# =============================================================================
 # CONFIGURACIÓN SUPABASE
 # =============================================================================
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# Obtener credenciales desde variables de entorno
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://arpartnlablfedsqxbsz.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFycGFydG5sYWJsZmVkc3F4YnN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxODU5MzQsImV4cCI6MjA2OTc2MTkzNH0.Vg5bkYt0ON_-WAM2-Ftq4x_i67yizI39FkGxuBWxTWs")
 BUCKET_NAME = "images"
 
-logger.info("🔧 Configurando Supabase...")
+print("🔧 Configurando Supabase...")
+print(f"📋 SUPABASE_URL: {'✅' if SUPABASE_URL else '❌'}")
+print(f"🔑 SUPABASE_KEY: {'✅' if SUPABASE_KEY else '❌'}")
+
+# Conexión a Supabase
 supabase = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        # Probar conexión con una consulta simple
         result = supabase.table("imagenes").select("*").limit(1).execute()
-        logger.info("✅ Conexión a Supabase establecida correctamente")
+        print("✅ Conexión a Supabase establecida correctamente")
     except Exception as e:
-        logger.error(f"❌ Error conectando a Supabase: {e}")
+        print(f"❌ Error conectando a Supabase: {e}")
         supabase = None
 else:
-    logger.warning("⚠️  Supabase no configurado")
+    print("⚠️  Supabase no configurado - variables faltantes")
 
 # =============================================================================
-# CONFIGURACIÓN AUTENTICACIÓN
+# CONFIGURACIÓN AUTENTICACIÓN JWT
 # =============================================================================
 
-SECRET_KEY = os.getenv("SECRET_KEY", "clave-temporal")
+from passlib.context import CryptContext
+from datetime import timedelta
+from jose import JWTError, jwt
+
+# Configuración para JWT
+SECRET_KEY = os.getenv("SECRET_KEY", "clave-secreta-temporal-cambiar-en-produccion")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# Contexto para hashing de contraseñas
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -76,7 +114,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -89,363 +127,136 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 def authenticate_user(username: str, password: str) -> Optional[dict]:
     try:
         response = supabase.table("usuarios_administradores").select("*").eq("nombre de usuario", username).execute()
+        
         if hasattr(response, 'error') and response.error:
             return None
+        
         if not response.data:
             return None
+        
         user = response.data[0]
         if not verify_password(password, user["contraseña_hash"]):
             return None
+        
         return user
     except Exception as e:
-        logger.error(f"Error en autenticación: {e}")
+        print(f"Error en autenticación: {e}")
         return None
 
 # =============================================================================
-# SERVIR ARCHIVOS ESTÁTICOS
+# ENDPOINTS PÚBLICOS
 # =============================================================================
-
-BASE_DIR = Path(__file__).parent.parent
-logger.info(f"📁 Directorio base: {BASE_DIR}")
-
-app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
 
 @app.get("/")
-async def read_root():
-    return FileResponse(BASE_DIR / "index.html")
-
-@app.get("/{page_name}")
-async def serve_page(page_name: str):
-    valid_pages = {
-        "identificador-plantas", "galeria_completa", "plantas_guardadas",
-        "suscripcion", "contactos", "login", "bienvenido", "mapa", "Mapa"
-    }
-    
-    if page_name in valid_pages:
-        file_path = BASE_DIR / f"{page_name}.html"
-    else:
-        file_path = BASE_DIR / page_name
-    
-    if file_path.exists():
-        return FileResponse(file_path)
-    
-    return FileResponse(BASE_DIR / "index.html")
-
-# =============================================================================
-# COMPRESIÓN INTELIGENTE DE IMÁGENES
-# =============================================================================
-
-class ImageCompressor:
-    """Compresor de imágenes inteligente y transparente"""
-    
-    @staticmethod
-    def compress_image(
-        image_data: bytes, 
-        max_dimension: int = 1600,
-        quality: int = 80,
-        format: str = 'JPEG'
-    ) -> tuple[bytes, str, dict]:
-        """
-        Comprime una imagen de forma inteligente manteniendo la calidad
-        """
-        try:
-            # Abrir imagen original
-            original_image = Image.open(BytesIO(image_data))
-            original_format = original_image.format
-            original_size = len(image_data)
-            original_width, original_height = original_image.size
-            
-            logger.info(f"📐 Imagen original: {original_width}x{original_height} - {original_size//1024}KB")
-            
-            # Si la imagen es pequeña, no comprimir
-            if original_size <= 1 * 1024 * 1024:  # Menos de 1MB
-                logger.info("🟢 Imagen pequeña, sin compresión necesaria")
-                return image_data, f"image/{original_format.lower()}", {
-                    "compressed": False,
-                    "original_size_kb": original_size // 1024,
-                    "compressed_size_kb": original_size // 1024,
-                    "reduction": "0%"
-                }
-            
-            # Convertir a RGB si es necesario (para JPEG)
-            if format == 'JPEG' and original_image.mode in ('RGBA', 'P'):
-                image_rgb = original_image.convert('RGB')
-            else:
-                image_rgb = original_image
-            
-            # Calcular nuevas dimensiones manteniendo aspecto
-            if original_width > max_dimension or original_height > max_dimension:
-                if original_width > original_height:
-                    new_width = max_dimension
-                    new_height = int((original_height / original_width) * max_dimension)
-                else:
-                    new_height = max_dimension
-                    new_width = int((original_width / original_height) * max_dimension)
-                
-                # Redimensionar suavemente
-                resized_image = image_rgb.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                logger.info(f"🔄 Redimensionado a: {new_width}x{new_height}")
-            else:
-                resized_image = image_rgb
-                new_width, new_height = original_width, original_height
-            
-            # Guardar imagen comprimida
-            output_buffer = BytesIO()
-            resized_image.save(
-                output_buffer, 
-                format=format, 
-                quality=quality,
-                optimize=True
-            )
-            
-            compressed_data = output_buffer.getvalue()
-            compressed_size = len(compressed_data)
-            
-            # Calcular estadísticas de compresión
-            reduction = ((original_size - compressed_size) / original_size) * 100
-            
-            logger.info(f"✅ Compresión: {original_size//1024}KB → {compressed_size//1024}KB (-{reduction:.1f}%)")
-            
-            return compressed_data, f"image/{format.lower()}", {
-                "compressed": True,
-                "original_size_kb": original_size // 1024,
-                "compressed_size_kb": compressed_size // 1024,
-                "reduction": f"{reduction:.1f}%",
-                "quality": f"{quality}%",
-                "original_dimensions": f"{original_width}x{original_height}",
-                "compressed_dimensions": f"{new_width}x{new_height}"
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Error en compresión: {e}")
-            # Si falla la compresión, devolver original
-            return image_data, "image/jpeg", {
-                "compressed": False,
-                "error": str(e)
-            }
-
-# =============================================================================
-# ENDPOINTS BÁSICOS
-# =============================================================================
-
-@app.get("/api/health")
-def health_check():
+def read_root():
     return {
-        "status": "healthy", 
+        "message": "API Cuenca Ubate funcionando", 
+        "status": "online",
         "timestamp": datetime.now().isoformat(),
-        "service": "Cuenca Ubate API",
         "database": "connected" if supabase else "disconnected"
     }
 
+@app.get("/health")
+def health_check():
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "services": {
+            "api": "running",
+            "database": "connected" if supabase else "disconnected"
+        }
+    }
+
 # =============================================================================
-# IDENTIFICACIÓN DE PLANTAS CON COMPRESIÓN AUTOMÁTICA
+# 🔐 ENDPOINT CLAVE: Identificación de Plantas
 # =============================================================================
 
 @app.post("/identify-plant")
 async def identify_plant(file: UploadFile = File(...)):
-    """
-    🔍 Identificación CON COMPRESIÓN AUTOMÁTICA
-    - Comprime imágenes grandes automáticamente
-    - Timeout reducido gracias a compresión
-    - Completamente transparente para el usuario
-    """
     try:
-        logger.info(f"🔍 Iniciando identificación: {file.filename}")
+        allowed_content_types = ['image/jpeg', 'image/png', 'image/webp']
+        if file.content_type not in allowed_content_types:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Tipo de archivo no soportado. Use: {', '.join(allowed_content_types)}"
+            )
         
-        # 1. VALIDACIÓN SOLO DE TIPO (NO DE TAMAÑO)
-        allowed_types = ['image/jpeg', 'image/png', 'image/webp']
-        if file.content_type not in allowed_types:
-            raise HTTPException(400, "Solo se permiten imágenes JPEG, PNG o WebP")
-        
-        # 2. LEER ARCHIVO ORIGINAL
-        original_content = await file.read()
-        original_size = len(original_content)
-        
-        logger.info(f"📁 Imagen original: {original_size//1024}KB - {file.content_type}")
-        
-        # 3. COMPRESIÓN INTELIGENTE Y TRANSPARENTE
-        compressor = ImageCompressor()
-        compressed_content, content_type, compression_info = compressor.compress_image(original_content)
-        
-        compressed_size = len(compressed_content)
-        
-        logger.info(f"📦 Después de compresión: {compressed_size//1024}KB")
-        logger.info(f"📊 Info compresión: {compression_info}")
-        
-        # 4. VERIFICAR API KEY
         api_key = os.getenv('PLANT_ID_API_KEY')
         if not api_key:
-            logger.error("❌ PLANT_ID_API_KEY no configurada")
-            raise HTTPException(500, "Servicio de identificación no disponible")
+            raise HTTPException(
+                status_code=500, 
+                detail="API Key no configurada en el servidor"
+            )
         
-        logger.info(f"✅ API Key encontrada")
+        print(f"🔍 Identificando planta con API Key: {api_key[:10]}...")
         
-        # 5. PREPARAR Y ENVIAR SOLICITUD CON IMAGEN COMPRIMIDA
-        files = {'images': (file.filename, compressed_content, content_type)}
-        data = {'organs': 'auto'}
+        file_content = await file.read()
+        files = {
+            'images': (file.filename, file_content, file.content_type)
+        }
+        data = {
+            'organs': 'auto'
+        }
         
         plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
-        logger.info(f"🌐 Enviando a PlantNet...")
-        
-        # 6. TIMEOUT REDUCIDO (gracias a la compresión)
-        timeout = 45  # 45 segundos en lugar de 90
-        
-        start_time = datetime.now()
-        response = requests.post(plantnet_url, files=files, data=data, timeout=timeout)
-        request_time = (datetime.now() - start_time).total_seconds()
-        
-        logger.info(f"📥 Respuesta recibida en {request_time:.1f}s")
+        response = requests.post(plantnet_url, files=files, data=data)
         
         if response.status_code != 200:
-            error_detail = "Error desconocido"
-            try:
-                error_data = response.json()
-                error_detail = error_data.get('error', error_detail)
-            except:
-                error_detail = response.text[:100]
-                
-            logger.error(f"❌ Error PlantNet: {error_detail}")
-            
-            if response.status_code == 413:
-                raise HTTPException(400, "Imagen demasiado grande para el servicio PlantNet")
-            elif response.status_code == 429:
-                raise HTTPException(429, "Demasiadas solicitudes. Espera unos minutos.")
-            else:
-                raise HTTPException(response.status_code, f"Error del servicio: {error_detail}")
+            error_detail = response.json().get('error', 'Error desconocido de PlantNet API')
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"PlantNet API error: {error_detail}"
+            )
         
-        # 7. PROCESAR RESULTADOS
         plant_data = response.json()
-        results = plant_data.get('results', [])
         
-        logger.info(f"✅ Identificación exitosa: {len(results)} resultados")
-        
-        if not results:
+        if not plant_data.get('results') or len(plant_data['results']) == 0:
             return {
                 "success": True,
-                "message": "No se pudo identificar la planta con certeza. Intenta con una imagen más clara y enfocada.",
+                "message": "No se pudo identificar la planta con certeza",
                 "results": [],
-                "compression_info": compression_info,
-                "performance": {
-                    "original_size_kb": original_size // 1024,
-                    "processed_size_kb": compressed_size // 1024,
-                    "processing_time": f"{request_time:.1f}s",
-                    "platform": "Render con compresión"
-                }
+                "suggestions": "Intente con una imagen más clara o desde otro ángulo"
             }
-        
-        # 8. FORMATEAR RESPUESTA
-        best_match = results[0]
-        species = best_match.get('species', {})
-        
-        scientific_name = species.get('scientificName', 'Desconocida')
-        common_names = species.get('commonNames', [])
-        common_name = common_names[0] if common_names else 'No disponible'
-        probability = best_match.get('score', 0)
-        
-        logger.info(f"🌿 Identificada: {scientific_name} - {probability*100:.1f}% de probabilidad")
         
         return {
             "success": True,
-            "message": f"¡Planta identificada! {len(results)} resultados encontrados",
-            "results": results[:3],
-            "best_match": best_match,
-            "identified_plant": {
-                "scientific_name": scientific_name,
-                "common_name": common_name,
-                "probability": probability,
-                "confidence": f"{probability*100:.1f}%"
-            },
-            "compression_info": compression_info,
-            "performance": {
-                "original_size_kb": original_size // 1024,
-                "processed_size_kb": compressed_size // 1024,
-                "processing_time": f"{request_time:.1f}s",
-                "platform": "Render con compresión"
-            }
+            "message": f"Identificación exitosa. {len(plant_data['results'])} resultados encontrados",
+            "results": plant_data['results'],
+            "best_match": plant_data['results'][0]
         }
         
-    except requests.exceptions.Timeout:
-        logger.error("❌ Timeout en PlantNet (45s)")
-        raise HTTPException(
-            504, 
-            "La identificación está tomando demasiado tiempo. Esto puede pasar con imágenes muy grandes. Puedes intentar con una imagen más pequeña o esperar e intentar nuevamente."
-        )
-    except requests.exceptions.ConnectionError:
-        logger.error("❌ Error de conexión con PlantNet")
-        raise HTTPException(503, "Error de conexión. El servicio puede estar temporalmente no disponible.")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error interno: {str(e)}")
-        raise HTTPException(500, f"Error interno del servidor: {str(e)}")
-
-# =============================================================================
-# ENDPOINT RÁPIDO CON COMPRESIÓN MÁS AGRESIVA
-# =============================================================================
-
-@app.post("/identify-fast")
-async def identify_fast(file: UploadFile = File(...)):
-    """
-    🚀 Versión RÁPIDA con compresión más agresiva
-    - Para cuando quieras resultados más rápidos
-    """
-    try:
-        logger.info(f"🚀 Iniciando identificación RÁPIDA")
-        
-        original_content = await file.read()
-        
-        # Compresión más agresiva para modo rápido
-        compressor = ImageCompressor()
-        compressed_content, content_type, compression_info = compressor.compress_image(
-            original_content,
-            max_dimension=800,   # Más pequeño para mayor velocidad
-            quality=70,          # Calidad más baja
-            format='JPEG'
+        print(f"❌ Error en identificación: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error interno del servidor: {str(e)}"
         )
-        
-        logger.info(f"⚡ Compresión rápida: {compression_info}")
-        
-        api_key = os.getenv('PLANT_ID_API_KEY')
-        if not api_key:
-            raise HTTPException(500, "Servicio no disponible")
-        
-        files = {'images': (file.filename, compressed_content, content_type)}
-        data = {'organs': 'auto'}
-        
-        plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
-        
-        # Timeout más corto para modo rápido
-        response = requests.post(plantnet_url, files=files, data=data, timeout=30)
-        
-        if response.status_code != 200:
-            raise HTTPException(response.status_code, "Error en identificación rápida")
-        
-        plant_data = response.json()
-        results = plant_data.get('results', [])
-        
-        if not results:
-            return {
-                "success": True,
-                "message": "No identificado en modo rápido",
-                "results": [],
-                "mode": "fast"
-            }
-        
-        return {
-            "success": True,
-            "message": "¡Identificación rápida exitosa!",
-            "results": results[:2],
-            "best_match": results[0],
-            "mode": "fast"
-        }
-        
-    except requests.exceptions.Timeout:
-        raise HTTPException(504, "Timeout en modo rápido")
-    except Exception as e:
-        raise HTTPException(500, f"Error rápido: {str(e)}")
 
 # =============================================================================
-# MANTENER TODOS LOS ENDPOINTS ORIGINALES (EXACTAMENTE IGUAL)
+# ENDPOINT DE CONFIGURACIÓN PARA FRONTEND
+# =============================================================================
+
+@app.get("/config")
+async def get_config():
+    return {
+        "API_BASE_URL": os.getenv("API_BASE_URL", "https://pagina-web-2p69.onrender.com"),
+        "ENVIRONMENT": os.getenv("NODE_ENV", "production"),
+        "SUPABASE_URL": os.getenv("SUPABASE_URL"),
+        "EMAILJS_SERVICE_ID": os.getenv("EMAILJS_SERVICE_ID"),
+        "EMAILJS_TEMPLATE_ID": os.getenv("EMAILJS_TEMPLATE_ID"),
+    }
+
+@app.get("/api/keys")
+async def get_api_keys():
+    return {
+        "PLANT_ID_API_KEY": os.getenv("PLANT_ID_API_KEY"),
+        "DEEPSEEK_API_KEY": os.getenv("DEEPSEEK_API_KEY")
+    }
+
+# =============================================================================
+# GESTIÓN DE IMÁGENES
 # =============================================================================
 
 @app.post("/upload")
@@ -458,7 +269,7 @@ async def upload_image(
     lng: Optional[float] = Form(None)
 ):
     if not supabase:
-        raise HTTPException(500, "Error de conexión a Supabase")
+        raise HTTPException(status_code=500, detail="Error de conexión a Supabase")
     
     try:
         file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
@@ -466,6 +277,8 @@ async def upload_image(
         file_path = f"public/{unique_filename}"
         
         file_content = await file.read()
+        
+        print(f"📤 Subiendo imagen: {file_path}")
         
         upload_response = supabase.storage.from_(BUCKET_NAME).upload(
             path=file_path,
@@ -492,18 +305,26 @@ async def upload_image(
         if description:
             image_data["description"] = description
         
+        print(f"💾 Guardando metadatos: {image_data}")
+        
         db_response = supabase.table("imagenes").insert(image_data).execute()
         
         if hasattr(db_response, 'error') and db_response.error:
             error_msg = str(db_response.error)
+            
             if "description" in error_msg:
+                print("⚠️  Columna description no existe, guardando sin description...")
                 image_data.pop("description", None)
                 db_response = supabase.table("imagenes").insert(image_data).execute()
+            
             elif "lat" in error_msg or "lng" in error_msg:
+                print("⚠️  Columnas lat/lng no existen, guardando sin coordenadas...")
                 image_data.pop("lat", None)
                 image_data.pop("lng", None)
                 db_response = supabase.table("imagenes").insert(image_data).execute()
+            
             elif "tipo_publicacion" in error_msg:
+                print("⚠️  Columna tipo_publicacion no existe, guardando sin tipo...")
                 image_data.pop("tipo_publicacion", None)
                 db_response = supabase.table("imagenes").insert(image_data).execute()
                 
@@ -512,19 +333,138 @@ async def upload_image(
         
         return {
             "success": True,
-            "message": f"Imagen guardada para planta {planta_id}",
+            "message": f"Imagen guardada para planta {planta_id} (pendiente de revisión)",
             "planta_id": planta_id,
             "filename": unique_filename,
-            "public_url": public_url
+            "public_url": public_url,
+            "estado": "pendiente",
+            "lat": lat,
+            "lng": lng
         }
         
     except Exception as e:
-        raise HTTPException(500, f"Error: {str(e)}")
+        print(f"❌ Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+# =============================================================================
+# ENDPOINTS DE ADMINISTRACIÓN
+# =============================================================================
+
+@app.delete("/delete-image/{image_id}")
+async def delete_image(image_id: int):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        image_data = supabase.table("imagenes").select("*").eq("id", image_id).execute()
+        
+        if not image_data.data:
+            raise HTTPException(status_code=404, detail="Imagen no encontrada")
+        
+        filename = image_data.data[0]["filename"]
+        file_path = f"public/{filename}"
+        
+        storage_response = supabase.storage.from_(BUCKET_NAME).remove([file_path])
+        db_response = supabase.table("imagenes").delete().eq("id", image_id).execute()
+        
+        return {
+            "success": True,
+            "message": "Imagen eliminada correctamente",
+            "deleted_filename": filename
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/cambiar-estado/{image_id}")
+async def cambiar_estado_imagen(image_id: int, nuevo_estado: str):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        estados_validos = ['pendiente', 'publicada', 'rechazada', 'activo']
+        if nuevo_estado not in estados_validos:
+            raise HTTPException(status_code=400, detail="Estado no válido")
+        
+        response = supabase.table("imagenes").update({
+            "estado": nuevo_estado
+        }).eq("id", image_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error actualizando estado: {response.error.message}")
+        
+        return {
+            "success": True,
+            "message": f"Estado cambiado a {nuevo_estado}",
+            "nuevo_estado": nuevo_estado
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/editar-imagen/{image_id}")
+async def editar_imagen(
+    image_id: int,
+    nuevo_nombre: str,
+    nueva_descripcion: str = None,
+    nueva_lat: float = None,
+    nueva_lng: float = None,
+    tipo_publicacion: str = "galeria"
+):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        tipos_validos = ['galeria', 'noticias']
+        if tipo_publicacion not in tipos_validos:
+            raise HTTPException(status_code=400, detail="Tipo de publicación no válido")
+        
+        update_data = {
+            "planta_id": nuevo_nombre,
+            "description": nueva_descripcion,
+            "lat": nueva_lat,
+            "lng": nueva_lng,
+            "tipo_publicacion": tipo_publicacion
+        }
+        
+        update_data = {k: v for k, v in update_data.items() if v is not None}
+        
+        print(f"🔧 Actualizando imagen {image_id} con datos: {update_data}")
+        
+        response = supabase.table("imagenes").update(update_data).eq("id", image_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            error_msg = str(response.error)
+            
+            if "tipo_publicacion" in error_msg:
+                print("⚠️  Columna tipo_publicacion no existe, actualizando sin tipo...")
+                update_data.pop("tipo_publicacion", None)
+                response = supabase.table("imagenes").update(update_data).eq("id", image_id).execute()
+            
+            if hasattr(response, 'error') and response.error:
+                raise Exception(f"Error actualizando imagen: {response.error.message}")
+        
+        if response.data:
+            return {
+                "success": True, 
+                "message": "Imagen actualizada correctamente",
+                "updated_fields": list(update_data.keys())
+            }
+        else:
+            return {"success": False, "message": "No se pudo actualizar la imagen"}
+            
+    except Exception as e:
+        print(f"❌ Error en editar_imagen: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+# =============================================================================
+# ENDPOINTS DE CONSULTA
+# =============================================================================
 
 @app.get("/list-images")
 async def list_images():
     if not supabase:
-        raise HTTPException(500, "Error de conexión a Supabase")
+        raise HTTPException(status_code=500, detail="Error de conexión a Supabase")
     
     try:
         response = supabase.table("imagenes").select("*").execute()
@@ -538,12 +478,12 @@ async def list_images():
         }
         
     except Exception as e:
-        raise HTTPException(500, f"Error obteniendo imágenes: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error obteniendo imágenes: {str(e)}")
 
 @app.get("/map-images")
 async def get_map_images():
     if not supabase:
-        raise HTTPException(500, "Supabase no configurado")
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
     
     try:
         response = supabase.table("imagenes").select("*").execute()
@@ -564,12 +504,12 @@ async def get_map_images():
         }
         
     except Exception as e:
-        raise HTTPException(500, f"Error obteniendo imágenes: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error obteniendo imágenes: {str(e)}")
 
 @app.get("/imagenes-noticias")
 async def get_imagenes_noticias():
     if not supabase:
-        raise HTTPException(500, "Supabase no configurado")
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
     
     try:
         response = supabase.table("imagenes").select("*").execute()
@@ -589,36 +529,209 @@ async def get_imagenes_noticias():
         }
         
     except Exception as e:
-        raise HTTPException(500, f"Error obteniendo imágenes noticias: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error obteniendo imágenes noticias: {str(e)}")
 
-@app.get("/api/keys")
-async def get_api_keys():
-    return {
-        "PLANT_ID_API_KEY": os.getenv("PLANT_ID_API_KEY"),
-        "DEEPSEEK_API_KEY": os.getenv("DEEPSEEK_API_KEY")
-    }
+@app.get("/plantas")
+async def get_plantas():
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        response = supabase.table("imagenes").select("planta_id").execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error: {response.error.message}")
+        
+        plantas_unicas = list(set([img['planta_id'] for img in response.data if img['planta_id']]))
+        
+        return {
+            "count": len(plantas_unicas),
+            "plantas": plantas_unicas
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
-# INICIO DEL SERVIDOR
+# SISTEMA DE SUSCRIPTORES
+# =============================================================================
+
+@app.post("/suscribir")
+async def suscribir_usuario(
+    nombre: str = Form(...),
+    email: str = Form(...)
+):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        if not "@" in email or not "." in email:
+            raise HTTPException(status_code=400, detail="Email no válido")
+        
+        existing = supabase.table("suscriptores").select("*").eq("email", email).execute()
+        
+        if existing.data:
+            return {
+                "success": False,
+                "message": "Este email ya está suscrito",
+                "email": email
+            }
+        
+        suscriptor_data = {
+            "nombre": nombre,
+            "email": email,
+            "fecha_registro": datetime.now().isoformat(),
+            "activo": True
+        }
+        
+        response = supabase.table("suscriptores").insert(suscriptor_data).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error guardando suscriptor: {response.error.message}")
+        
+        return {
+            "success": True,
+            "message": f"¡Gracias {nombre}! Te has suscrito exitosamente.",
+            "suscriptor": {
+                "nombre": nombre,
+                "email": email,
+                "fecha_registro": suscriptor_data["fecha_registro"]
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en suscripción: {str(e)}")
+
+@app.get("/suscriptores")
+async def obtener_suscriptores():
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        response = supabase.table("suscriptores").select("*").order("fecha_registro", desc=True).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error obteniendo suscriptores: {response.error.message}")
+        
+        return {
+            "success": True,
+            "count": len(response.data),
+            "suscriptores": response.data
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error obteniendo suscriptores: {str(e)}")
+
+@app.delete("/eliminar-suscriptor/{suscriptor_id}")
+async def eliminar_suscriptor(suscriptor_id: int):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        response = supabase.table("suscriptores").delete().eq("id", suscriptor_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error eliminando suscriptor: {response.error.message}")
+        
+        return {
+            "success": True,
+            "message": "Suscriptor eliminado correctamente"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error eliminando suscriptor: {str(e)}")
+
+# =============================================================================
+# SISTEMA DE AUTENTICACIÓN
+# =============================================================================
+
+@app.post("/login")
+async def login_admin(
+    nombre_usuario: str = Form(...),
+    contraseña: str = Form(...)
+):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase no configurado")
+    
+    try:
+        user = authenticate_user(nombre_usuario, contraseña)
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="Credenciales incorrectas",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user["nombre de usuario"], "id": user["id"]}, 
+            expires_delta=access_token_expires
+        )
+        
+        supabase.table("usuarios_administradores").update({
+            "actualizado_at": datetime.now().isoformat()
+        }).eq("id", user["id"]).execute()
+        
+        return {
+            "success": True,
+            "access_token": access_token,
+            "token_type": "bearer",
+            "nombre_usuario": user["nombre de usuario"],
+            "id": user["id"]
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en login: {str(e)}")
+
+@app.get("/verify-token")
+async def verify_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        user_id: int = payload.get("id")
+        
+        if username is None or user_id is None:
+            raise HTTPException(status_code=401, detail="Token inválido")
+        
+        response = supabase.table("usuarios_administradores").select("*").eq("id", user_id).execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=401, detail="Usuario no encontrado")
+        
+        return {
+            "valid": True,
+            "nombre_usuario": username,
+            "id": user_id
+        }
+        
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+# =============================================================================
+# INICIO DEL SERVIDOR - ADAPTADO PARA RENDER
 # =============================================================================
 
 if __name__ == "__main__":
     import uvicorn
     
+    # 🔥 CAMBIO IMPORTANTE: Usar PORT de Render en lugar de 8002
     port = int(os.getenv("PORT", 8000))
     
     print("\n" + "="*60)
-    print("🚀 CUENCA UBATÉ - CON COMPRESIÓN AUTOMÁTICA")
+    print("🚀 INICIANDO SERVIDOR FASTAPI - CUENCA UBATÉ")
     print("="*60)
-    print("🖼️  Características:")
-    print("   • Compresión inteligente de imágenes")
-    print("   • Reducción automática de tamaño")
-    print("   • Mantenimiento de calidad para identificación")
-    print("   • Completamente transparente para el usuario")
     print(f"🌐 URL: http://0.0.0.0:{port}")
+    print(f"📚 Documentación: http://0.0.0.0:{port}/docs") 
+    print(f"❤️  Health Check: http://0.0.0.0:{port}/health")
+    print("🔐 Login: /login")
     print("🔍 Identificar Plantas: /identify-plant")
-    print("🚀 Modo Rápido: /identify-fast")
-    print("📊 Health Check: /api/health")
-    print("="*60)
+    print("🗺️  Map Images: /map-images")
+    print("📰 Noticias Images: /imagenes-noticias")
+    print("📧 Suscripciones: /suscribir")
+    print("👥 Gestión Suscriptores: /suscriptores")
+    print("⚙️  Config: /config")
     
+    # 🔥 CAMBIO: Usar 0.0.0.0 y puerto dinámico
     uvicorn.run(app, host="0.0.0.0", port=port)
