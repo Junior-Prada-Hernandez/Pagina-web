@@ -7,11 +7,84 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/mapa.css">
+  <link rel="stylesheet" href="/assets/css/mapa.css">
+  <style>
+    /* Estilos de respaldo mientras carga */
+    .loading-map {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #1a1a1a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      color: white;
+      font-family: sans-serif;
+    }
+    
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #333;
+      border-top: 4px solid #38A169;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 15px;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
 </head>
 <body>
+  <!-- Loading mientras carga el mapa -->
+  <div id="loadingMap" class="loading-map">
+    <div class="loading-spinner"></div>
+    <div>Cargando mapa...</div>
+  </div>
+
   <div id="map"></div>
 
-  <script src="assets/js/mapa.js"></script>
+  <script src="/assets/js/mapa.js"></script>
+  <script>
+    // Verificar que el mapa se cargó correctamente
+    window.addEventListener('load', function() {
+      setTimeout(() => {
+        const loadingElement = document.getElementById('loadingMap');
+        if (loadingElement) {
+          loadingElement.style.display = 'none';
+        }
+      }, 2000);
+    });
+    
+    // Manejar errores de carga
+    window.addEventListener('error', function(e) {
+      console.error('Error cargando la página:', e);
+      const loadingElement = document.getElementById('loadingMap');
+      if (loadingElement) {
+        loadingElement.innerHTML = `
+          <div style="text-align: center;">
+            <div style="color: #ff6b6b; font-size: 48px; margin-bottom: 20px;">⚠️</div>
+            <h3>Error al cargar el mapa</h3>
+            <p>Por favor, recarga la página o verifica tu conexión.</p>
+            <button onclick="window.location.reload()" style="
+              background: #38A169;
+              color: white;
+              border: none;
+              padding: 10px 20px;
+              border-radius: 5px;
+              cursor: pointer;
+              margin-top: 10px;
+            ">Reintentar</button>
+          </div>
+        `;
+      }
+    });
+  </script>
 </body>
 </html>
