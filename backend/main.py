@@ -1,5 +1,5 @@
 from typing import Union, Optional
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -13,10 +13,6 @@ from passlib.context import CryptContext
 from datetime import timedelta
 from jose import JWTError, jwt
 from pathlib import Path
-import io
-from PIL import Image
-import asyncio
-import aiohttp
 
 # =============================================================================
 # CONFIGURACIÓN INICIAL
@@ -99,42 +95,6 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
         return None
 
 # =============================================================================
-# COMPRESIÓN AGGRESIVA PARA RENDER
-# =============================================================================
-
-def compress_image_for_render(image_data: bytes) -> bytes:
-    """
-    Compresión ULTRA agresiva específicamente para Render
-    """
-    try:
-        # Abrir imagen
-        image = Image.open(io.BytesIO(image_data))
-        
-        # REDUCIR DRÁSTICAMENTE - máximo 600px
-        max_size = 600
-        image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-        
-        # Convertir a RGB si es necesario
-        if image.mode in ('RGBA', 'LA', 'P'):
-            image = image.convert('RGB')
-        
-        # Comprimir con calidad baja
-        output = io.BytesIO()
-        image.save(output, format='JPEG', quality=60, optimize=True)
-        
-        compressed_data = output.getvalue()
-        original_kb = len(image_data) // 1024
-        compressed_kb = len(compressed_data) // 1024
-        
-        print(f"📊 Compresión AGGRESIVA: {original_kb}KB → {compressed_kb}KB")
-        
-        return compressed_data
-        
-    except Exception as e:
-        print(f"⚠️  Error en compresión: {e}")
-        return image_data
-
-# =============================================================================
 # SERVIR ARCHIVOS ESTÁTICOS
 # =============================================================================
 
@@ -165,148 +125,168 @@ async def serve_page(page_name: str):
     return FileResponse(BASE_DIR / "index.html")
 
 # =============================================================================
-# IDENTIFICACIÓN ULTRA OPTIMIZADA PARA RENDER
+# ENDPOINTS BÁSICOS
+# =============================================================================
+
+@app.get("/api/health")
+def health_check():
+    return {
+        "status": "healthy", 
+        "timestamp": datetime.now().isoformat(),
+        "service": "Cuenca Ubate API",
+        "database": "connected" if supabase else "disconnected"
+    }
+
+# =============================================================================
+# IDENTIFICACIÓN DE PLANTAS - SIMPLIFICADA PERO FUNCIONAL
 # =============================================================================
 
 @app.post("/identify-plant")
 async def identify_plant(file: UploadFile = File(...)):
     """
-    🔍 Identificación ULTRA optimizada para los límites de Render
+    🔍 Identificación de plantas SIMPLIFICADA pero FUNCIONAL
+    - Sin compresión de imágenes
+    - Límites estrictos para Render
     """
     try:
-        print(f"🔍 INICIO identificación ULTRA-OPTIMIZADA")
+        print(f"🔍 Iniciando identificación: {file.filename}")
         
         # 1. VALIDACIÓN RÁPIDA
         allowed_types = ['image/jpeg', 'image/png', 'image/webp']
         if file.content_type not in allowed_types:
-            raise HTTPException(400, "Solo JPEG, PNG o WebP")
+            raise HTTPException(400, "Solo se permiten imágenes JPEG, PNG o WebP")
         
-        # 2. LECTURA Y VALIDACIÓN DE TAMAÑO
+        # 2. LECTURA Y VALIDACIÓN DE TAMAÑO (LÍMITE ESTRICTO)
+        MAX_SIZE = 1 * 1024 * 1024  # 1MB máximo para Render
+        
         file_content = await file.read()
         file_size = len(file_content)
         
-        print(f"📁 Tamaño original: {file_size//1024}KB")
+        print(f"📁 Tamaño de imagen: {file_size//1024}KB")
         
-        # LIMITE ESTRICTO PARA RENDER
-        if file_size > 2 * 1024 * 1024:  # 2MB máximo
+        if file_size > MAX_SIZE:
             raise HTTPException(
                 400, 
-                f"Imagen demasiado grande ({file_size//1024}KB). Máximo 2MB."
+                f"Imagen demasiado grande ({file_size//1024}KB). Para Render, usa imágenes menores a 1MB."
             )
         
-        # 3. COMPRESIÓN AGGRESIVA
-        start_compress = datetime.now()
-        compressed_content = compress_image_for_render(file_content)
-        compress_time = (datetime.now() - start_compress).total_seconds()
-        
-        compressed_size = len(compressed_content)
-        print(f"📊 Después compresión: {compressed_size//1024}KB ({compress_time:.1f}s)")
-        
-        # 4. VERIFICAR API KEY
+        # 3. VERIFICAR API KEY
         api_key = os.getenv('PLANT_ID_API_KEY')
         if not api_key:
-            raise HTTPException(500, "Servicio no disponible")
+            print("❌ PLANT_ID_API_KEY no configurada")
+            raise HTTPException(500, "Servicio de identificación no disponible")
         
-        # 5. PREPARAR DATOS CON TIMEOUT CONSERVADOR
-        files = {'images': ('optimized.jpg', compressed_content, 'image/jpeg')}
+        print(f"✅ API Key encontrada")
+        
+        # 4. PREPARAR Y ENVIAR SOLICITUD
+        files = {'images': (file.filename, file_content, file.content_type)}
         data = {'organs': 'auto'}
         
         plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
+        print(f"🌐 Enviando a PlantNet...")
         
-        print(f"🌐 Enviando a PlantNet (comprimido: {compressed_size//1024}KB)...")
+        # 5. TIMEOUT CONSERVADOR para Render
+        start_time = datetime.now()
+        response = requests.post(plantnet_url, files=files, data=data, timeout=55)
+        request_time = (datetime.now() - start_time).total_seconds()
         
-        # 6. SOLICITUD CON TIMEOUT CONSERVADOR (45s para evitar límites de Render)
-        start_request = datetime.now()
+        print(f"📥 Respuesta recibida en {request_time:.1f}s")
         
-        # Usar aiohttp para mejor manejo asíncrono
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=45)) as session:
-            form_data = aiohttp.FormData()
-            form_data.add_field('images', compressed_content, filename='plant.jpg', content_type='image/jpeg')
-            form_data.add_field('organs', 'auto')
-            
-            async with session.post(plantnet_url, data=form_data) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise HTTPException(response.status, f"Error PlantNet: {error_text[:100]}")
+        if response.status_code != 200:
+            error_detail = "Error desconocido"
+            try:
+                error_data = response.json()
+                error_detail = error_data.get('error', error_detail)
+            except:
+                error_detail = response.text[:100]
                 
-                plant_data = await response.json()
+            print(f"❌ Error PlantNet: {error_detail}")
+            raise HTTPException(response.status_code, f"Error en identificación: {error_detail}")
         
-        request_time = (datetime.now() - start_request).total_seconds()
-        print(f"✅ Respuesta recibida en {request_time:.1f}s")
-        
-        # 7. PROCESAR RESULTADOS
+        # 6. PROCESAR RESULTADOS
+        plant_data = response.json()
         results = plant_data.get('results', [])
-        print(f"📊 {len(results)} resultados obtenidos")
+        
+        print(f"✅ Identificación exitosa: {len(results)} resultados")
         
         if not results:
             return {
                 "success": True,
-                "message": "No se pudo identificar la planta. Intenta con otra imagen.",
+                "message": "No se pudo identificar la planta con certeza. Intenta con una imagen más clara.",
                 "results": [],
                 "performance": {
-                    "original_size_kb": file_size // 1024,
-                    "compressed_size_kb": compressed_size // 1024,
-                    "total_time": f"{request_time + compress_time:.1f}s"
+                    "image_size_kb": file_size // 1024,
+                    "processing_time": f"{request_time:.1f}s"
                 }
             }
         
-        # 8. RESPUESTA OPTIMIZADA
+        # 7. FORMATEAR RESPUESTA
         best_match = results[0]
         species = best_match.get('species', {})
         
+        scientific_name = species.get('scientificName', 'Desconocida')
+        common_names = species.get('commonNames', [])
+        common_name = common_names[0] if common_names else 'No disponible'
+        probability = best_match.get('score', 0)
+        
+        print(f"🌿 Identificada: {scientific_name} - {probability*100:.1f}% de probabilidad")
+        
         return {
             "success": True,
-            "message": f"¡Planta identificada! {len(results)} resultados",
-            "results": results[:3],  # Solo primeros 3 para reducir tamaño respuesta
+            "message": f"¡Planta identificada! {len(results)} resultados encontrados",
+            "results": results[:3],  # Solo primeros 3 para optimizar
             "best_match": best_match,
             "identified_plant": {
-                "scientific_name": species.get('scientificName', 'Desconocida'),
-                "common_name": species.get('commonNames', [''])[0],
-                "probability": best_match.get('score', 0)
+                "scientific_name": scientific_name,
+                "common_name": common_name,
+                "probability": probability,
+                "confidence": f"{probability*100:.1f}%"
             },
             "performance": {
-                "original_size_kb": file_size // 1024,
-                "compressed_size_kb": compressed_size // 1024,
-                "compression_time": f"{compress_time:.1f}s",
-                "api_time": f"{request_time:.1f}s",
-                "total_time": f"{request_time + compress_time:.1f}s"
+                "image_size_kb": file_size // 1024,
+                "processing_time": f"{request_time:.1f}s"
             }
         }
         
-    except asyncio.TimeoutError:
-        print("❌ Timeout asyncio (45s)")
-        raise HTTPException(504, "La identificación tomó demasiado tiempo. Intenta con una imagen más pequeña.")
-    except aiohttp.ClientError as e:
-        print(f"❌ Error de conexión: {e}")
-        raise HTTPException(503, "Error de conexión. Intenta nuevamente.")
+    except requests.exceptions.Timeout:
+        print("❌ Timeout en PlantNet (55s)")
+        raise HTTPException(
+            504, 
+            "La identificación está tomando demasiado tiempo. Por favor, usa una imagen más pequeña (menor a 1MB) y bien iluminada."
+        )
+    except requests.exceptions.ConnectionError:
+        print("❌ Error de conexión con PlantNet")
+        raise HTTPException(503, "Error de conexión con el servicio de identificación. Intenta nuevamente.")
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error inesperado: {str(e)}")
-        raise HTTPException(500, f"Error interno: {str(e)}")
+        print(f"❌ Error interno: {str(e)}")
+        raise HTTPException(500, f"Error interno del servidor: {str(e)}")
 
 # =============================================================================
-# ENDPOINT SUPER-RÁPIDO (para imágenes < 300KB)
+# ENDPOINT PARA IMÁGENES PEQUEÑAS (EXTRA RÁPIDO)
 # =============================================================================
 
 @app.post("/identify-fast")
 async def identify_fast(file: UploadFile = File(...)):
     """
-    🚀 ENDPOINT SUPER-RÁPIDO para imágenes pequeñas
+    🚀 Versión RÁPIDA para imágenes pequeñas
+    - Límite de 300KB
+    - Timeout más corto
     """
     try:
-        print(f"🚀 INICIO identificación SUPER-RÁPIDA")
+        print(f"🚀 Iniciando identificación RÁPIDA")
         
         # LÍMITE MUY ESTRICTO
-        MAX_SIZE = 300 * 1024  # 300KB
+        MAX_FAST_SIZE = 300 * 1024  # 300KB
         
         file_content = await file.read()
         file_size = len(file_content)
         
-        if file_size > MAX_SIZE:
+        if file_size > MAX_FAST_SIZE:
             raise HTTPException(
                 400,
-                f"Para modo rápido: máximo 300KB. Tu imagen: {file_size//1024}KB"
+                f"Para identificación rápida, usa imágenes menores a 300KB. Tu imagen: {file_size//1024}KB"
             )
         
         print(f"📁 Tamaño rápido: {file_size//1024}KB")
@@ -315,53 +295,44 @@ async def identify_fast(file: UploadFile = File(...)):
         if not api_key:
             raise HTTPException(500, "Servicio no disponible")
         
-        # COMPRESIÓN MÁS AGGRESIVA
-        compressed_content = compress_image_for_render(file_content)
+        files = {'images': (file.filename, file_content, file.content_type)}
+        data = {'organs': 'auto'}
         
         plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
         
-        # TIMEOUT MUY CORTO
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25)) as session:
-            form_data = aiohttp.FormData()
-            form_data.add_field('images', compressed_content, filename='fast.jpg', content_type='image/jpeg')
-            form_data.add_field('organs', 'auto')
-            
-            async with session.post(plantnet_url, data=form_data) as response:
-                if response.status != 200:
-                    raise HTTPException(response.status, "Error en modo rápido")
-                
-                plant_data = await response.json()
+        # TIMEOUT CORTO
+        response = requests.post(plantnet_url, files=files, data=data, timeout=30)
         
+        if response.status_code != 200:
+            raise HTTPException(response.status_code, "Error en identificación rápida")
+        
+        plant_data = response.json()
         results = plant_data.get('results', [])
         
         if not results:
             return {
                 "success": True,
-                "message": "No identificado (modo rápido)",
+                "message": "No se pudo identificar en modo rápido. Intenta con el endpoint normal.",
                 "results": [],
                 "mode": "fast"
             }
         
         return {
             "success": True,
-            "message": "Identificación rápida exitosa!",
+            "message": "¡Identificación rápida exitosa!",
             "results": results[:2],
             "best_match": results[0],
             "mode": "fast"
         }
         
-    except asyncio.TimeoutError:
-        raise HTTPException(504, "Timeout en modo rápido")
+    except requests.exceptions.Timeout:
+        raise HTTPException(504, "Timeout en modo rápido. Usa imágenes más pequeñas.")
     except Exception as e:
-        raise HTTPException(500, f"Error rápido: {str(e)}")
+        raise HTTPException(500, f"Error en modo rápido: {str(e)}")
 
 # =============================================================================
-# MANTENER TODOS TUS OTROS ENDPOINTS ORIGINALES
+# MANTENER TODOS LOS ENDPOINTS ORIGINALES
 # =============================================================================
-
-@app.get("/api/health")
-def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 @app.post("/upload")
 async def upload_image(
@@ -436,8 +407,6 @@ async def upload_image(
     except Exception as e:
         raise HTTPException(500, f"Error: {str(e)}")
 
-# ... (MANTENER TODOS TUS OTROS ENDPOINTS EXACTAMENTE IGUAL)
-
 @app.get("/list-images")
 async def list_images():
     if not supabase:
@@ -483,7 +452,237 @@ async def get_map_images():
     except Exception as e:
         raise HTTPException(500, f"Error obteniendo imágenes: {str(e)}")
 
-# ... (TODOS LOS DEMÁS ENDPOINTS ORIGINALES)
+@app.get("/imagenes-noticias")
+async def get_imagenes_noticias():
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        response = supabase.table("imagenes").select("*").execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error obteniendo imágenes: {response.error.message}")
+        
+        imagenes_noticias = [
+            img for img in response.data 
+            if img.get('tipo_publicacion') == 'noticias' and 
+               img.get('estado') == 'publicada'
+        ]
+        
+        return {
+            "count": len(imagenes_noticias),
+            "images": imagenes_noticias
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo imágenes noticias: {str(e)}")
+
+@app.delete("/delete-image/{image_id}")
+async def delete_image(image_id: int):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        image_data = supabase.table("imagenes").select("*").eq("id", image_id).execute()
+        
+        if not image_data.data:
+            raise HTTPException(404, "Imagen no encontrada")
+        
+        filename = image_data.data[0]["filename"]
+        file_path = f"public/{filename}"
+        
+        storage_response = supabase.storage.from_(BUCKET_NAME).remove([file_path])
+        db_response = supabase.table("imagenes").delete().eq("id", image_id).execute()
+        
+        return {
+            "success": True,
+            "message": "Imagen eliminada correctamente",
+            "deleted_filename": filename
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+@app.put("/cambiar-estado/{image_id}")
+async def cambiar_estado_imagen(image_id: int, nuevo_estado: str):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        estados_validos = ['pendiente', 'publicada', 'rechazada', 'activo']
+        if nuevo_estado not in estados_validos:
+            raise HTTPException(400, "Estado no válido")
+        
+        response = supabase.table("imagenes").update({"estado": nuevo_estado}).eq("id", image_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error actualizando estado: {response.error.message}")
+        
+        return {
+            "success": True,
+            "message": f"Estado cambiado a {nuevo_estado}",
+            "nuevo_estado": nuevo_estado
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+@app.put("/editar-imagen/{image_id}")
+async def editar_imagen(
+    image_id: int,
+    nuevo_nombre: str,
+    nueva_descripcion: str = None,
+    nueva_lat: float = None,
+    nueva_lng: float = None,
+    tipo_publicacion: str = "galeria"
+):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        tipos_validos = ['galeria', 'noticias']
+        if tipo_publicacion not in tipos_validos:
+            raise HTTPException(400, "Tipo de publicación no válido")
+        
+        update_data = {
+            "planta_id": nuevo_nombre,
+            "description": nueva_descripcion,
+            "lat": nueva_lat,
+            "lng": nueva_lng,
+            "tipo_publicacion": tipo_publicacion
+        }
+        
+        update_data = {k: v for k, v in update_data.items() if v is not None}
+        
+        response = supabase.table("imagenes").update(update_data).eq("id", image_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            error_msg = str(response.error)
+            if "tipo_publicacion" in error_msg:
+                update_data.pop("tipo_publicacion", None)
+                response = supabase.table("imagenes").update(update_data).eq("id", image_id).execute()
+            
+            if hasattr(response, 'error') and response.error:
+                raise Exception(f"Error actualizando imagen: {response.error.message}")
+        
+        if response.data:
+            return {
+                "success": True, 
+                "message": "Imagen actualizada correctamente",
+                "updated_fields": list(update_data.keys())
+            }
+        else:
+            return {"success": False, "message": "No se pudo actualizar la imagen"}
+            
+    except Exception as e:
+        raise HTTPException(500, detail=f"Error: {str(e)}")
+
+@app.post("/suscribir")
+async def suscribir_usuario(nombre: str = Form(...), email: str = Form(...)):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        if not "@" in email or not "." in email:
+            raise HTTPException(400, "Email no válido")
+        
+        existing = supabase.table("suscriptores").select("*").eq("email", email).execute()
+        
+        if existing.data:
+            return {
+                "success": False,
+                "message": "Este email ya está suscrito",
+                "email": email
+            }
+        
+        suscriptor_data = {
+            "nombre": nombre,
+            "email": email,
+            "fecha_registro": datetime.now().isoformat(),
+            "activo": True
+        }
+        
+        response = supabase.table("suscriptores").insert(suscriptor_data).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error guardando suscriptor: {response.error.message}")
+        
+        return {
+            "success": True,
+            "message": f"¡Gracias {nombre}! Te has suscrito exitosamente."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, detail=f"Error en suscripción: {str(e)}")
+
+@app.get("/suscriptores")
+async def obtener_suscriptores():
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        response = supabase.table("suscriptores").select("*").order("fecha_registro", desc=True).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error obteniendo suscriptores: {response.error.message}")
+        
+        return {
+            "success": True,
+            "count": len(response.data),
+            "suscriptores": response.data
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, detail=f"Error obteniendo suscriptores: {str(e)}")
+
+@app.delete("/eliminar-suscriptor/{suscriptor_id}")
+async def eliminar_suscriptor(suscriptor_id: int):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        response = supabase.table("suscriptores").delete().eq("id", suscriptor_id).execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error eliminando suscriptor: {response.error.message}")
+        
+        return {"success": True, "message": "Suscriptor eliminado correctamente"}
+        
+    except Exception as e:
+        raise HTTPException(500, detail=f"Error eliminando suscriptor: {str(e)}")
+
+@app.post("/login")
+async def login_admin(nombre_usuario: str = Form(...), contraseña: str = Form(...)):
+    if not supabase:
+        raise HTTPException(500, "Supabase no configurado")
+    
+    try:
+        user = authenticate_user(nombre_usuario, contraseña)
+        if not user:
+            raise HTTPException(401, "Credenciales incorrectas")
+        
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user["nombre de usuario"], "id": user["id"]}, 
+            expires_delta=access_token_expires
+        )
+        
+        supabase.table("usuarios_administradores").update({
+            "actualizado_at": datetime.now().isoformat()
+        }).eq("id", user["id"]).execute()
+        
+        return {
+            "success": True,
+            "access_token": access_token,
+            "token_type": "bearer",
+            "nombre_usuario": user["nombre de usuario"],
+            "id": user["id"]
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, detail=f"Error en login: {str(e)}")
 
 @app.get("/api/keys")
 async def get_api_keys():
@@ -502,10 +701,10 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     
     print("\n" + "="*60)
-    print("🚀 CUENCA UBATÉ - OPTIMIZADO PARA RENDER")
+    print("🚀 CUENCA UBATÉ - VERSIÓN SIMPLIFICADA")
     print("="*60)
     print(f"🌐 URL: http://0.0.0.0:{port}")
     print("🔍 Identificar Plantas: /identify-plant")
     print("🚀 Identificación Rápida: /identify-fast")
-    print("📊 Límites: 2MB máximo, 45s timeout")
+    print("📊 Límites: 1MB máximo, 55s timeout")
     uvicorn.run(app, host="0.0.0.0", port=port)
