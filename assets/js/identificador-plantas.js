@@ -10,6 +10,10 @@ const DEEPSEEK_API_KEY = 'sk-93a2f73354c14faf8121c0bab5935598';
 let currentPlantData = null;
 let currentPlantImage = null;
 
+// Configuración de timeouts
+const BACKEND_TIMEOUT = 10000; // 10 segundos para tu backend
+const PLANTNET_TIMEOUT = 15000; // 15 segundos para PlantNet directo
+
 // Fuentes confiables para consultar información
 const TRUSTED_SOURCES = [
     {
@@ -131,53 +135,21 @@ async function identifyPlant() {
     savePlantBtn.style.display = 'none';
     
     try {
-        // ✅ OPCIÓN 1: Usar tu backend en Render para identificación (RECOMENDADO)
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
+        console.log('🔍 Iniciando proceso de identificación...');
         
-        console.log('🔍 Enviando imagen para identificación...');
-        
-        const response = await fetch(`${API_BASE}/identify-plant`, {
-            method: 'POST',
-            body: formData
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || 'Error al identificar la planta');
+        // ✅ PRIMERO: Intentar con tu backend en Render (con timeout)
+        try {
+            await identifyWithBackend();
+        } catch (backendError) {
+            console.log('❌ Backend falló, intentando con PlantNet directo...');
+            
+            // ✅ SEGUNDO: Fallback a PlantNet API directa
+            await identifyWithPlantNetDirect();
         }
         
-        const plantIdData = await response.json();
-        
-        if (!plantIdData.results || plantIdData.results.length === 0) {
-            throw new Error('No se pudo identificar la planta. Intenta con otra imagen más clara.');
-        }
-        
-        const bestMatch = plantIdData.results[0];
-        currentPlantData = bestMatch;
-        const scientificName = bestMatch.species.scientificName || 'Planta desconocida';
-        
-        console.log('✅ Planta identificada:', scientificName);
-        
-        // 2. Obtener descripción de la planta
-        const description = await getPlantDescription(scientificName);
-        
-        // 3. Mostrar resultados
-        displayResults(bestMatch, description);
-        
-        // Mostrar botón para guardar la planta
-        savePlantBtn.style.display = 'inline-flex';
-        
-    } catch (error) {
-        console.error('❌ Error en identificación:', error);
-        
-        // ✅ OPCIÓN 2: Fallback - usar API directa si el backend falla
-        if (error.message.includes('backend') || error.message.includes('conexión')) {
-            console.log('🔄 Intentando identificación directa con PlantNet API...');
-            await identifyPlantDirect();
-        } else {
-            showError(error.message);
-        }
+    } catch (finalError) {
+        console.error('❌ Error final en identificación:', finalError);
+        showError('No se pudo identificar la planta. Error: ' + finalError.message);
     } finally {
         loading.style.display = 'none';
         identifyBtn.disabled = false;
@@ -185,106 +157,174 @@ async function identifyPlant() {
     }
 }
 
-// ✅ OPCIÓN DE FALLBACK: Identificación directa con PlantNet API
-async function identifyPlantDirect() {
-    try {
-        const file = fileInput.files[0];
-        const formData = new FormData();
-        formData.append('images', file);
-        formData.append('organs', 'auto');
+// ✅ ESTRATEGIA 1: Usar tu backend en Render (con timeout)
+async function identifyWithBackend() {
+    return new Promise(async (resolve, reject) => {
+        const timeout = setTimeout(() => {
+            reject(new Error('Timeout: El backend tardó demasiado en responder'));
+        }, BACKEND_TIMEOUT);
         
-        console.log('🔍 Identificación directa con PlantNet API...');
-        
-        const response = await fetch(`https://my-api.plantnet.org/v2/identify/all?api-key=${PLANT_ID_API_KEY}`, {
-            method: 'POST',
-            body: formData
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Error en PlantNet API');
+        try {
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            
+            console.log('🔄 Intentando identificación con backend...');
+            
+            const response = await fetch(`${API_BASE}/identify-plant`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            clearTimeout(timeout);
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Error del backend');
+            }
+            
+            const plantIdData = await response.json();
+            
+            if (!plantIdData.results || plantIdData.results.length === 0) {
+                throw new Error('No se pudo identificar la planta con el backend');
+            }
+            
+            const bestMatch = plantIdData.results[0];
+            currentPlantData = bestMatch;
+            const scientificName = bestMatch.species.scientificName || 'Planta desconocida';
+            
+            console.log('✅ Backend exitoso. Planta identificada:', scientificName);
+            
+            // Obtener descripción y mostrar resultados
+            const description = await getPlantDescription(scientificName);
+            displayResults(bestMatch, description);
+            savePlantBtn.style.display = 'inline-flex';
+            
+            resolve();
+            
+        } catch (error) {
+            clearTimeout(timeout);
+            reject(error);
         }
-        
-        const plantIdData = await response.json();
-        
-        if (!plantIdData.results || plantIdData.results.length === 0) {
-            throw new Error('No se pudo identificar la planta. Intenta con otra imagen más clara.');
-        }
-        
-        const bestMatch = plantIdData.results[0];
-        currentPlantData = bestMatch;
-        const scientificName = bestMatch.species.scientificName || 'Planta desconocida';
-        
-        console.log('✅ Planta identificada (directo):', scientificName);
-        
-        // Obtener descripción de la planta
-        const description = await getPlantDescription(scientificName);
-        
-        // Mostrar resultados
-        displayResults(bestMatch, description);
-        
-        // Mostrar botón para guardar la planta
-        savePlantBtn.style.display = 'inline-flex';
-        
-    } catch (error) {
-        showError('Error en identificación: ' + error.message);
-        console.error('❌ Error en identificación directa:', error);
-    }
+    });
 }
 
-// Función para obtener descripción de la planta usando DeepSeek API
+// ✅ ESTRATEGIA 2: Identificación directa con PlantNet API
+async function identifyWithPlantNetDirect() {
+    return new Promise(async (resolve, reject) => {
+        const timeout = setTimeout(() => {
+            reject(new Error('Timeout: PlantNet API tardó demasiado en responder'));
+        }, PLANTNET_TIMEOUT);
+        
+        try {
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('images', file);
+            formData.append('organs', 'auto');
+            
+            console.log('🔄 Identificación directa con PlantNet API...');
+            
+            const response = await fetch(`https://my-api.plantnet.org/v2/identify/all?api-key=${PLANT_ID_API_KEY}`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            clearTimeout(timeout);
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Error en PlantNet API');
+            }
+            
+            const plantIdData = await response.json();
+            
+            if (!plantIdData.results || plantIdData.results.length === 0) {
+                throw new Error('No se pudo identificar la planta con PlantNet API');
+            }
+            
+            const bestMatch = plantIdData.results[0];
+            currentPlantData = bestMatch;
+            const scientificName = bestMatch.species.scientificName || 'Planta desconocida';
+            
+            console.log('✅ PlantNet directo exitoso. Planta identificada:', scientificName);
+            
+            // Obtener descripción y mostrar resultados
+            const description = await getPlantDescription(scientificName);
+            displayResults(bestMatch, description);
+            savePlantBtn.style.display = 'inline-flex';
+            
+            resolve();
+            
+        } catch (error) {
+            clearTimeout(timeout);
+            reject(error);
+        }
+    });
+}
+
+// Función para obtener descripción de la planta
 async function getPlantDescription(plantName) {
     try {
-        // ✅ Usar DeepSeek API para obtener descripción detallada
+        // Intentar con DeepSeek API primero
         if (DEEPSEEK_API_KEY && plantName !== 'Planta desconocida') {
+            console.log('🤖 Obteniendo descripción con DeepSeek...');
             return await getDescriptionFromDeepSeek(plantName);
         } else {
+            console.log('📚 Usando base de conocimiento local...');
             return simulateDeepSeekResponse(plantName);
         }
     } catch (error) {
         console.error('Error al obtener descripción:', error);
-        return await getDescriptionFromAlternativeSources(plantName);
+        return simulateDeepSeekResponse(plantName);
     }
 }
 
-// ✅ FUNCIÓN MEJORADA: Obtener descripción de DeepSeek API
+// Obtener descripción de DeepSeek API (con timeout)
 async function getDescriptionFromDeepSeek(plantName) {
-    try {
-        const response = await fetch('https://api.deepseek.com/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-            },
-            body: JSON.stringify({
-                model: 'deepseek-chat',
-                messages: [
-                    {
-                        role: 'system',
-                        content: 'Eres un botánico experto especializado en la flora de la Cuenca Alta del Río Ubaté en Colombia. Proporciona descripciones concisas (150-200 palabras) con información relevante sobre plantas de esta región.'
-                    },
-                    {
-                        role: 'user',
-                        content: `Proporciona una descripción concisa (150-200 palabras) sobre la planta "${plantName}" enfocándote en su presencia en la Cuenca Alta del Río Ubaté, Colombia. Incluye características morfológicas, hábitat, importancia ecológica y cualquier dato específico de la región.`
-                    }
-                ],
-                max_tokens: 500,
-                temperature: 0.7
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error('Error en DeepSeek API');
-        }
-
-        const data = await response.json();
-        return data.choices[0].message.content;
+    return new Promise(async (resolve, reject) => {
+        const timeout = setTimeout(() => {
+            console.log('⏰ Timeout en DeepSeek, usando descripción local');
+            resolve(simulateDeepSeekResponse(plantName));
+        }, 8000);
         
-    } catch (error) {
-        console.error('Error con DeepSeek API:', error);
-        // Fallback a la base de conocimiento simulada
-        return simulateDeepSeekResponse(plantName);
-    }
+        try {
+            const response = await fetch('https://api.deepseek.com/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: 'deepseek-chat',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'Eres un botánico experto especializado en la flora de la Cuenca Alta del Río Ubaté en Colombia. Proporciona descripciones concisas (150-200 palabras) con información relevante sobre plantas de esta región.'
+                        },
+                        {
+                            role: 'user',
+                            content: `Proporciona una descripción concisa (150-200 palabras) sobre la planta "${plantName}" enfocándote en su presencia en la Cuenca Alta del Río Ubaté, Colombia. Incluye características morfológicas, hábitat, importancia ecológica y cualquier dato específico de la región.`
+                        }
+                    ],
+                    max_tokens: 500,
+                    temperature: 0.7
+                })
+            });
+
+            clearTimeout(timeout);
+            
+            if (!response.ok) {
+                throw new Error('Error en DeepSeek API');
+            }
+
+            const data = await response.json();
+            resolve(data.choices[0].message.content);
+            
+        } catch (error) {
+            clearTimeout(timeout);
+            console.error('Error con DeepSeek API:', error);
+            resolve(simulateDeepSeekResponse(plantName));
+        }
+    });
 }
 
 // Base de conocimiento simulada (fallback)
@@ -307,11 +347,6 @@ function simulateDeepSeekResponse(plantName) {
     }
     
     return plantKnowledge['default'];
-}
-
-// Función alternativa para obtener descripción
-async function getDescriptionFromAlternativeSources(plantName) {
-    return `Información recopilada de registros botánicos de la Cuenca Ubaté sobre ${plantName}. Los datos incluyen características observadas en especímenes de la región y su importancia para el ecosistema local.`;
 }
 
 // ========== MOSTRAR RESULTADOS ==========
@@ -503,16 +538,6 @@ async function savePlant() {
 }
 
 // ========== FUNCIONES UTILITARIAS ==========
-// Convertir archivo a Base64
-function toBase64(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = error => reject(error);
-    });
-}
-
 // Mostrar mensaje de error
 function showError(message) {
     errorText.textContent = message;
