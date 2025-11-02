@@ -9,9 +9,12 @@ from dotenv import load_dotenv
 from datetime import datetime
 import uuid
 import requests
+from passlib.context import CryptContext
+from datetime import timedelta
+from jose import JWTError, jwt
 
 # =============================================================================
-# CONFIGURACIÓN INICIAL Y VARIABLES DE ENTORNO
+# CONFIGURACIÓN INICIAL
 # =============================================================================
 
 load_dotenv()
@@ -35,32 +38,30 @@ app.add_middleware(
 )
 
 # =============================================================================
-# SERVIR ARCHIVOS ESTÁTICOS - CORREGIDO PARA RENDER
+# SERVIR ARCHIVOS ESTÁTICOS
 # =============================================================================
 
-# Servir archivos estáticos desde la carpeta actual
+# Servir archivos estáticos
 try:
     app.mount("/assets", StaticFiles(directory="assets"), name="assets")
     print("✅ Servidor de archivos estáticos configurado")
 except Exception as e:
     print(f"⚠️  No se pudo montar assets: {e}")
 
-# Servir archivos HTML principales
+# Servir archivos HTML
 @app.get("/")
 async def read_index():
     if os.path.exists("index.html"):
         return FileResponse("index.html")
     else:
-        return {"message": "API funcionando pero index.html no encontrado"}
+        return {"message": "API funcionando"}
 
 @app.get("/{page_name}")
 async def read_page(page_name: str):
-    # Lista de páginas permitidas
     paginas_permitidas = [
         "index.html", "plantas_guardadas.html", "Mapa.html", "mapa.html", 
         "galeria_completa.html", "identificador-plantas.html",
-        "suscripcion.html", "contactos.html", "login.html",
-        "bienvenido.html", "admin.html"
+        "suscripcion.html", "contactos.html", "login.html", "bienvenido.html"
     ]
     
     if page_name in paginas_permitidas and os.path.exists(page_name):
@@ -68,38 +69,24 @@ async def read_page(page_name: str):
     elif page_name.endswith('.html') and os.path.exists(page_name):
         return FileResponse(page_name)
     else:
-        # Si no encuentra la página, devolver el index
-        if os.path.exists("index.html"):
-            return FileResponse("index.html")
-        else:
-            raise HTTPException(status_code=404, detail="Página no encontrada")
+        return FileResponse("index.html")
 
 # =============================================================================
-# CONFIGURACIÓN SUPABASE - CON CREDENCIALES DIRECTAS PARA RENDER
+# CONFIGURACIÓN SUPABASE - CREDENCIALES DIRECTAS
 # =============================================================================
 
-# 🔥 CREDENCIALES DIRECTAS DE SUPABASE (para Render)
 SUPABASE_URL = "https://arpartnlablfedsqxbsz.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFycGFydG5sYWJsZmVkc3F4YnN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxODU5MzQsImV4cCI6MjA2OTc2MTkzNH0.Vg5bkYt0ON_-WAM2-Ftq4x_i67yizI39FkGxuBWxTWs"
 BUCKET_NAME = "images"
 
 print("🔧 Configurando Supabase...")
-print(f"📋 SUPABASE_URL: {SUPABASE_URL}")
-print(f"🔑 SUPABASE_KEY: {SUPABASE_KEY[:10]}...")
 
 # Conexión a Supabase
 supabase = None
 try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    # Probar conexión con una consulta simple
     result = supabase.table("imagenes").select("*").limit(1).execute()
     print("✅ Conexión a Supabase establecida correctamente")
-    print(f"📊 Tabla 'imagenes': {len(result.data)} registros encontrados")
-    
-    # Probar conexión con suscriptores
-    suscriptores_result = supabase.table("suscriptores").select("*").limit(1).execute()
-    print(f"📧 Tabla 'suscriptores': {len(suscriptores_result.data)} registros encontrados")
-    
 except Exception as e:
     print(f"❌ Error conectando a Supabase: {e}")
     supabase = None
@@ -108,16 +95,10 @@ except Exception as e:
 # CONFIGURACIÓN AUTENTICACIÓN JWT
 # =============================================================================
 
-from passlib.context import CryptContext
-from datetime import timedelta
-from jose import JWTError, jwt
-
-# Configuración para JWT
-SECRET_KEY = os.getenv("SECRET_KEY", "clave-secreta-temporal-cambiar-en-produccion")
+SECRET_KEY = os.getenv("SECRET_KEY", "clave-secreta-temporal")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# Contexto para hashing de contraseñas
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -180,79 +161,82 @@ def health_check():
     }
 
 # =============================================================================
-# 🔐 ENDPOINT CLAVE: Identificación de Plantas - CORREGIDO
+# 🔐 ENDPOINT CLAVE: Identificación de Plantas - OPTIMIZADO
 # =============================================================================
 
 @app.post("/identify-plant")
 async def identify_plant(file: UploadFile = File(...)):
+    """
+    🔍 Identificación optimizada de plantas con timeout reducido
+    """
     try:
+        # 1. VALIDACIÓN RÁPIDA
         allowed_content_types = ['image/jpeg', 'image/png', 'image/webp']
         if file.content_type not in allowed_content_types:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Tipo de archivo no soportado. Use: {', '.join(allowed_content_types)}"
+                detail=f"Tipo de archivo no soportado. Use: JPEG, PNG, WebP"
             )
         
-        # 🔥 API KEY DIRECTA PARA RENDER
+        # 2. API KEY DIRECTA
         api_key = "2b10aLv6ZUTN4hwDcJ4I3dmu"
-        if not api_key:
+        
+        # 3. LEER Y OPTIMIZAR IMAGEN
+        file_content = await file.read()
+        
+        # Verificar tamaño (máximo 5MB para evitar timeouts)
+        if len(file_content) > 5 * 1024 * 1024:
             raise HTTPException(
-                status_code=500, 
-                detail="API Key no configurada en el servidor"
+                status_code=400,
+                detail="Imagen demasiado grande. Use imágenes menores a 5MB."
             )
         
-        print(f"🔍 Identificando planta con API Key: {api_key[:10]}...")
+        print(f"🔍 Identificando planta... Tamaño: {len(file_content)//1024}KB")
         
-        file_content = await file.read()
-        files = {
-            'images': (file.filename, file_content, file.content_type)
-        }
-        data = {
-            'organs': 'auto'
-        }
+        # 4. LLAMADA A PLANTNET CON TIMEOUT REDUCIDO
+        files = {'images': (file.filename, file_content, file.content_type)}
+        data = {'organs': 'auto'}
         
         plantnet_url = f'https://my-api.plantnet.org/v2/identify/all?api-key={api_key}'
         
-        # Agregar timeout para evitar 504
-        response = requests.post(plantnet_url, files=files, data=data, timeout=30)
+        # Timeout reducido a 25 segundos (Render tiene límite de 30s)
+        response = requests.post(plantnet_url, files=files, data=data, timeout=25)
         
         if response.status_code != 200:
-            error_detail = response.json().get('error', 'Error desconocido de PlantNet API')
+            error_detail = response.json().get('error', 'Error desconocido')
             raise HTTPException(
                 status_code=response.status_code, 
-                detail=f"PlantNet API error: {error_detail}"
+                detail=f"Error PlantNet: {error_detail}"
             )
         
         plant_data = response.json()
         
+        # 5. RESULTADOS
         if not plant_data.get('results') or len(plant_data['results']) == 0:
             return {
                 "success": True,
-                "message": "No se pudo identificar la planta con certeza",
+                "message": "No se pudo identificar la planta",
                 "results": [],
-                "suggestions": "Intente con una imagen más clara o desde otro ángulo"
+                "suggestions": "Intente con una imagen más clara"
             }
         
         return {
             "success": True,
-            "message": f"Identificación exitosa. {len(plant_data['results'])} resultados encontrados",
+            "message": f"Identificación exitosa. {len(plant_data['results'])} resultados",
             "results": plant_data['results'],
             "best_match": plant_data['results'][0]
         }
         
     except requests.exceptions.Timeout:
-        raise HTTPException(status_code=504, detail="Timeout: La identificación tardó demasiado")
+        raise HTTPException(status_code=408, detail="La identificación tardó demasiado. Intente con una imagen más pequeña.")
     except HTTPException:
         raise
     except Exception as e:
         print(f"❌ Error en identificación: {str(e)}")
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Error interno del servidor: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 # =============================================================================
-# ENDPOINT DE CONFIGURACIÓN PARA FRONTEND
+# ENDPOINT DE CONFIGURACIÓN
 # =============================================================================
 
 @app.get("/config")
@@ -261,8 +245,6 @@ async def get_config():
         "API_BASE_URL": "https://pagina-web-2p69.onrender.com",
         "ENVIRONMENT": "production",
         "SUPABASE_URL": SUPABASE_URL,
-        "EMAILJS_SERVICE_ID": os.getenv("EMAILJS_SERVICE_ID", ""),
-        "EMAILJS_TEMPLATE_ID": os.getenv("EMAILJS_TEMPLATE_ID", ""),
     }
 
 @app.get("/api/keys")
@@ -289,6 +271,7 @@ async def upload_image(
         raise HTTPException(status_code=500, detail="Error de conexión a Supabase")
     
     try:
+        # Generar nombre único
         file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
         unique_filename = f"{uuid.uuid4()}.{file_extension}"
         file_path = f"public/{unique_filename}"
@@ -297,6 +280,7 @@ async def upload_image(
         
         print(f"📤 Subiendo imagen: {file_path}")
         
+        # Subir a Supabase Storage
         upload_response = supabase.storage.from_(BUCKET_NAME).upload(
             path=file_path,
             file=file_content
@@ -307,6 +291,7 @@ async def upload_image(
         
         public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path)
         
+        # Preparar metadatos
         image_data = {
             "filename": unique_filename,
             "nombre_usuario": nombre_usuario,
@@ -322,26 +307,24 @@ async def upload_image(
         if description:
             image_data["description"] = description
         
-        print(f"💾 Guardando metadatos: {image_data}")
-        
+        # Guardar en base de datos
         db_response = supabase.table("imagenes").insert(image_data).execute()
         
+        # Manejar errores de columnas faltantes
         if hasattr(db_response, 'error') and db_response.error:
             error_msg = str(db_response.error)
             
+            # Intentar sin campos problemáticos
             if "description" in error_msg:
-                print("⚠️  Columna description no existe, guardando sin description...")
                 image_data.pop("description", None)
                 db_response = supabase.table("imagenes").insert(image_data).execute()
             
-            elif "lat" in error_msg or "lng" in error_msg:
-                print("⚠️  Columnas lat/lng no existen, guardando sin coordenadas...")
+            if "lat" in error_msg or "lng" in error_msg:
                 image_data.pop("lat", None)
                 image_data.pop("lng", None)
                 db_response = supabase.table("imagenes").insert(image_data).execute()
             
-            elif "tipo_publicacion" in error_msg:
-                print("⚠️  Columna tipo_publicacion no existe, guardando sin tipo...")
+            if "tipo_publicacion" in error_msg:
                 image_data.pop("tipo_publicacion", None)
                 db_response = supabase.table("imagenes").insert(image_data).execute()
                 
@@ -350,7 +333,7 @@ async def upload_image(
         
         return {
             "success": True,
-            "message": f"Imagen guardada para planta {planta_id} (pendiente de revisión)",
+            "message": f"Imagen guardada para {planta_id} (pendiente de revisión)",
             "planta_id": planta_id,
             "filename": unique_filename,
             "public_url": public_url,
@@ -381,8 +364,9 @@ async def delete_image(image_id: int):
         filename = image_data.data[0]["filename"]
         file_path = f"public/{filename}"
         
-        storage_response = supabase.storage.from_(BUCKET_NAME).remove([file_path])
-        db_response = supabase.table("imagenes").delete().eq("id", image_id).execute()
+        # Eliminar de storage y base de datos
+        supabase.storage.from_(BUCKET_NAME).remove([file_path])
+        supabase.table("imagenes").delete().eq("id", image_id).execute()
         
         return {
             "success": True,
@@ -399,13 +383,11 @@ async def cambiar_estado_imagen(image_id: int, nuevo_estado: str):
         raise HTTPException(status_code=500, detail="Supabase no configurado")
     
     try:
-        estados_validos = ['pendiente', 'publicada', 'rechazada', 'activo']
+        estados_validos = ['pendiente', 'publicada', 'rechazada']
         if nuevo_estado not in estados_validos:
             raise HTTPException(status_code=400, detail="Estado no válido")
         
-        response = supabase.table("imagenes").update({
-            "estado": nuevo_estado
-        }).eq("id", image_id).execute()
+        response = supabase.table("imagenes").update({"estado": nuevo_estado}).eq("id", image_id).execute()
         
         if hasattr(response, 'error') and response.error:
             raise Exception(f"Error actualizando estado: {response.error.message}")
@@ -432,10 +414,6 @@ async def editar_imagen(
         raise HTTPException(status_code=500, detail="Supabase no configurado")
     
     try:
-        tipos_validos = ['galeria', 'noticias']
-        if tipo_publicacion not in tipos_validos:
-            raise HTTPException(status_code=400, detail="Tipo de publicación no válido")
-        
         update_data = {
             "planta_id": nuevo_nombre,
             "description": nueva_descripcion,
@@ -444,17 +422,16 @@ async def editar_imagen(
             "tipo_publicacion": tipo_publicacion
         }
         
+        # Remover valores None
         update_data = {k: v for k, v in update_data.items() if v is not None}
-        
-        print(f"🔧 Actualizando imagen {image_id} con datos: {update_data}")
         
         response = supabase.table("imagenes").update(update_data).eq("id", image_id).execute()
         
         if hasattr(response, 'error') and response.error:
             error_msg = str(response.error)
             
+            # Intentar sin campos problemáticos
             if "tipo_publicacion" in error_msg:
-                print("⚠️  Columna tipo_publicacion no existe, actualizando sin tipo...")
                 update_data.pop("tipo_publicacion", None)
                 response = supabase.table("imagenes").update(update_data).eq("id", image_id).execute()
             
@@ -475,7 +452,7 @@ async def editar_imagen(
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 # =============================================================================
-# ENDPOINTS DE CONSULTA - CORREGIDOS
+# ENDPOINTS DE CONSULTA
 # =============================================================================
 
 @app.get("/list-images")
@@ -487,12 +464,9 @@ async def list_images():
         response = supabase.table("imagenes").select("*").execute()
         
         if hasattr(response, 'error') and response.error:
-            print(f"❌ Error de Supabase: {response.error}")
             raise Exception(f"Error obteniendo imágenes: {response.error.message}")
         
-        print(f"📊 Enviando {len(response.data)} imágenes al frontend")
-        
-        # Asegurarse de que todas las imágenes tengan URL válida
+        # Procesar imágenes para asegurar URLs válidas
         imagenes_procesadas = []
         for img in response.data:
             imagen_procesada = {
@@ -508,7 +482,7 @@ async def list_images():
                 "tipo_publicacion": img.get("tipo_publicacion", "galeria")
             }
             
-            # Si no hay URL de imagen, generar placeholder
+            # Si no hay URL, generar placeholder
             if not imagen_procesada["url_imagen"]:
                 nombre_planta = imagen_procesada["planta_id"].replace(" ", "+")
                 imagen_procesada["url_imagen"] = f"https://via.placeholder.com/400x200/4a7c59/ffffff?text={nombre_planta}"
@@ -659,7 +633,6 @@ async def obtener_suscriptores():
         if hasattr(response, 'error') and response.error:
             raise Exception(f"Error obteniendo suscriptores: {response.error.message}")
         
-        print(f"📧 Enviando {len(response.data)} suscriptores al frontend")
         return {
             "success": True,
             "count": len(response.data),
@@ -667,7 +640,6 @@ async def obtener_suscriptores():
         }
         
     except Exception as e:
-        print(f"❌ Error obteniendo suscriptores: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error obteniendo suscriptores: {str(e)}")
 
 @app.delete("/eliminar-suscriptor/{suscriptor_id}")
@@ -756,7 +728,7 @@ async def verify_token(token: str):
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
 # =============================================================================
-# INICIO DEL SERVIDOR - ADAPTADO PARA RENDER
+# INICIO DEL SERVIDOR
 # =============================================================================
 
 if __name__ == "__main__":
@@ -769,13 +741,5 @@ if __name__ == "__main__":
     print("="*60)
     print(f"🌐 URL: http://0.0.0.0:{port}")
     print(f"📚 Documentación: http://0.0.0.0:{port}/docs") 
-    print(f"❤️  Health Check: http://0.0.0.0:{port}/health")
-    print("🔐 Login: /login")
-    print("🔍 Identificar Plantas: /identify-plant")
-    print("🗺️  Map Images: /map-images")
-    print("📰 Noticias Images: /imagenes-noticias")
-    print("📧 Suscripciones: /suscribir")
-    print("👥 Gestión Suscriptores: /suscriptores")
-    print("⚙️  Config: /config")
     
     uvicorn.run(app, host="0.0.0.0", port=port)
