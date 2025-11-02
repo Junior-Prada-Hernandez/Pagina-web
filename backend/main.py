@@ -66,31 +66,34 @@ async def read_page(page_name: str):
         raise HTTPException(status_code=404, detail="Página no encontrada")
 
 # =============================================================================
-# CONFIGURACIÓN SUPABASE
+# CONFIGURACIÓN SUPABASE - CON CREDENCIALES DIRECTAS PARA RENDER
 # =============================================================================
 
-# Obtener credenciales desde variables de entorno
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://arpartnlablfedsqxbsz.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFycGFydG5sYWJsZmVkc3F4YnN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxODU5MzQsImV4cCI6MjA2OTc2MTkzNH0.Vg5bkYt0ON_-WAM2-Ftq4x_i67yizI39FkGxuBWxTWs")
+# 🔥 CREDENCIALES DIRECTAS DE SUPABASE (para Render)
+SUPABASE_URL = "https://arpartnlablfedsqxbsz.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFycGFydG5sYWJsZmVkc3F4YnN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxODU5MzQsImV4cCI6MjA2OTc2MTkzNH0.Vg5bkYt0ON_-WAM2-Ftq4x_i67yizI39FkGxuBWxTWs"
 BUCKET_NAME = "images"
 
 print("🔧 Configurando Supabase...")
-print(f"📋 SUPABASE_URL: {'✅' if SUPABASE_URL else '❌'}")
-print(f"🔑 SUPABASE_KEY: {'✅' if SUPABASE_KEY else '❌'}")
+print(f"📋 SUPABASE_URL: {SUPABASE_URL}")
+print(f"🔑 SUPABASE_KEY: {SUPABASE_KEY[:10]}...")  # Solo mostrar primeros 10 caracteres por seguridad
 
 # Conexión a Supabase
 supabase = None
-if SUPABASE_URL and SUPABASE_KEY:
-    try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        # Probar conexión con una consulta simple
-        result = supabase.table("imagenes").select("*").limit(1).execute()
-        print("✅ Conexión a Supabase establecida correctamente")
-    except Exception as e:
-        print(f"❌ Error conectando a Supabase: {e}")
-        supabase = None
-else:
-    print("⚠️  Supabase no configurado - variables faltantes")
+try:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    # Probar conexión con una consulta simple
+    result = supabase.table("imagenes").select("*").limit(1).execute()
+    print("✅ Conexión a Supabase establecida correctamente")
+    print(f"📊 Tabla 'imagenes': {len(result.data)} registros encontrados")
+    
+    # Probar conexión con suscriptores
+    suscriptores_result = supabase.table("suscriptores").select("*").limit(1).execute()
+    print(f"📧 Tabla 'suscriptores': {len(suscriptores_result.data)} registros encontrados")
+    
+except Exception as e:
+    print(f"❌ Error conectando a Supabase: {e}")
+    supabase = None
 
 # =============================================================================
 # CONFIGURACIÓN AUTENTICACIÓN JWT
@@ -243,7 +246,7 @@ async def get_config():
     return {
         "API_BASE_URL": os.getenv("API_BASE_URL", "https://pagina-web-2p69.onrender.com"),
         "ENVIRONMENT": os.getenv("NODE_ENV", "production"),
-        "SUPABASE_URL": os.getenv("SUPABASE_URL"),
+        "SUPABASE_URL": SUPABASE_URL,
         "EMAILJS_SERVICE_ID": os.getenv("EMAILJS_SERVICE_ID"),
         "EMAILJS_TEMPLATE_ID": os.getenv("EMAILJS_TEMPLATE_ID"),
     }
@@ -472,12 +475,14 @@ async def list_images():
         if hasattr(response, 'error') and response.error:
             raise Exception(f"Error obteniendo imágenes: {response.error.message}")
         
+        print(f"📊 Enviando {len(response.data)} imágenes al frontend")
         return {
             "count": len(response.data),
             "images": response.data
         }
         
     except Exception as e:
+        print(f"❌ Error obteniendo imágenes: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error obteniendo imágenes: {str(e)}")
 
 @app.get("/map-images")
@@ -615,6 +620,7 @@ async def obtener_suscriptores():
         if hasattr(response, 'error') and response.error:
             raise Exception(f"Error obteniendo suscriptores: {response.error.message}")
         
+        print(f"📧 Enviando {len(response.data)} suscriptores al frontend")
         return {
             "success": True,
             "count": len(response.data),
@@ -622,6 +628,7 @@ async def obtener_suscriptores():
         }
         
     except Exception as e:
+        print(f"❌ Error obteniendo suscriptores: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error obteniendo suscriptores: {str(e)}")
 
 @app.delete("/eliminar-suscriptor/{suscriptor_id}")
