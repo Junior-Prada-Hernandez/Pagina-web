@@ -510,11 +510,8 @@
 
     <!-- JAVASCRIPT -->
     <script>
-        // API KEYS DIRECTAS
-        const PLANT_ID_API_KEY = '2b10aLv6ZUTN4hwDcJ4I3dmu';
-        const DEEPSEEK_API_KEY = 'sk-93a2f73354c14faf8121c0bab5935598';
-        const SUPABASE_URL = 'https://arpartnlablfedsqxbsz.supabase.co';
-        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFycGFydG5sYWJsZmVkc3F4YnN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxODU5MzQsImV4cCI6MjA2OTc2MTkzNH0.Vg5bkYt0ON_-WAM2-Ftq4x_i67yizI39FkGxuBWxTWs';
+        // URL DEL BACKEND EN RENDER
+        const API_BASE = 'https://pagina-web-2p69.onrender.com';
 
         // Variables globales
         let currentPlantData = null;
@@ -559,7 +556,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             localStorage.clear();
             initializeEventListeners();
-            console.log('🚀 Identificador de plantas inicializado con APIs directas');
+            console.log('🚀 Identificador de plantas inicializado - Plant.id v3');
         });
 
         // EVENT LISTENERS
@@ -611,7 +608,7 @@
             }
         }
 
-        // IDENTIFICAR PLANTA
+        // IDENTIFICAR PLANTA - USANDO PLANT.ID V3
         async function identifyPlant() {
             if (!fileInput.files[0]) {
                 showError('Por favor selecciona una imagen primero');
@@ -627,40 +624,47 @@
             savePlantBtn.style.display = 'none';
             
             try {
-                // 1. Identificar con Plant.id
-                const plantIdResponse = await fetch('https://my-api.plantnet.org/v2/identify/all?api-key=' + PLANT_ID_API_KEY, {
+                // ✅ USAR BACKEND DE RENDER CON PLANT.ID V3
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                
+                console.log('🌿 Enviando imagen para identificación...');
+                
+                const response = await fetch(`${API_BASE}/identify-plant`, {
                     method: 'POST',
-                    body: (() => {
-                        const formData = new FormData();
-                        formData.append('images', fileInput.files[0]);
-                        formData.append('organs', 'auto');
-                        return formData;
-                    })()
+                    body: formData
                 });
                 
-                const plantIdData = await plantIdResponse.json();
-                
-                if (!plantIdResponse.ok) {
-                    throw new Error(plantIdData.error || 'Error al identificar la planta');
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ Error del servidor:', errorText);
+                    throw new Error('Error del servidor al identificar la planta');
                 }
                 
-                if (!plantIdData.results || plantIdData.results.length === 0) {
+                const plantIdData = await response.json();
+                console.log('✅ Respuesta recibida:', plantIdData);
+                
+                if (!plantIdData.result || !plantIdData.result.classification || !plantIdData.result.classification.suggestions || plantIdData.result.classification.suggestions.length === 0) {
                     throw new Error('No se pudo identificar la planta. Intenta con otra imagen más clara.');
                 }
                 
-                const bestMatch = plantIdData.results[0];
+                const bestMatch = plantIdData.result.classification.suggestions[0];
                 currentPlantData = bestMatch;
-                const scientificName = bestMatch.species.scientificName || 'Planta desconocida';
+                const scientificName = bestMatch.name || 'Planta desconocida';
+                const probabilityScore = bestMatch.probability || 0;
                 
-                // 2. Obtener descripción
+                console.log('🌱 Planta identificada:', scientificName, 'Probabilidad:', probabilityScore);
+                
+                // Obtener descripción
                 const description = await getPlantDescription(scientificName);
                 
-                // 3. Mostrar resultados
-                displayResults(bestMatch, description);
+                // Mostrar resultados
+                displayResults(bestMatch, description, probabilityScore);
                 
                 savePlantBtn.style.display = 'inline-flex';
                 
             } catch (error) {
+                console.error('❌ Error en identificación:', error);
                 showError(error.message);
             } finally {
                 loading.style.display = 'none';
@@ -693,15 +697,16 @@
             return `Información recopilada de registros botánicos de la Cuenca Ubaté sobre ${plantName}. Los datos incluyen características observadas en especímenes de la región.`;
         }
 
-        // MOSTRAR RESULTADOS
-        function displayResults(plantData, description) {
-            const scientificName = plantData.species.scientificName || 'Planta desconocida';
+        // MOSTRAR RESULTADOS - ACTUALIZADO PARA PLANT.ID V3
+        function displayResults(plantData, description, probabilityScore) {
+            const scientificName = plantData.name || 'Planta desconocida';
+            const commonNames = plantData.details?.common_names || [];
             
             plantName.textContent = scientificName;
-            probability.textContent = `Confianza: ${(plantData.score * 100).toFixed(1)}%`;
+            probability.textContent = `Confianza: ${(probabilityScore * 100).toFixed(1)}%`;
             
-            if (plantData.species.commonNames) {
-                commonNamesText.textContent = plantData.species.commonNames.join(', ');
+            if (commonNames && commonNames.length > 0) {
+                commonNamesText.textContent = commonNames.join(', ');
             } else {
                 commonNamesText.textContent = 'No se encontraron nombres comunes';
             }
@@ -757,26 +762,29 @@
                 savedPlants.unshift(plantToSave);
                 localStorage.setItem('savedPlants', JSON.stringify(savedPlants));
                 
-                // Guardar en Supabase
+                // ✅ GUARDAR EN SUPABASE USANDO BACKEND DE RENDER
                 const formData = new FormData();
                 formData.append('file', fileInput.files[0]);
                 formData.append('planta_id', 'planta-sin-identificar');
                 formData.append('nombre_usuario', 'usuario_web');
                 formData.append('description', 'Planta sin identificar - guardada desde la galería');
                 
-                const response = await fetch('http://localhost:8002/upload', {
+                const response = await fetch(`${API_BASE}/upload`, {
                     method: 'POST',
                     body: formData
                 });
                 
                 if (!response.ok) {
-                    throw new Error('Error al guardar en Supabase');
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Error al guardar en Supabase');
                 }
                 
+                const result = await response.json();
                 showSuccess('¡Imagen guardada correctamente en Supabase!');
                 
             } catch (error) {
                 showError('Error al guardar la imagen: ' + error.message);
+                console.error('Error al guardar:', error);
             } finally {
                 saveWithoutIdentifyBtn.disabled = false;
                 saveWithoutIdentifyBtn.innerHTML = '<i class="fas fa-save"></i> Guardar sin identificar';
@@ -799,14 +807,14 @@
                 
                 const plantToSave = {
                     id: Date.now(),
-                    name: currentPlantData.species.scientificName,
-                    commonName: currentPlantData.species.commonNames?.[0] || 'Sin nombre común',
+                    name: currentPlantData.name || 'Planta desconocida',
+                    commonName: currentPlantData.details?.common_names?.[0] || 'Sin nombre común',
                     image: currentPlantImage,
                     dateSaved: new Date().toISOString(),
-                    probability: currentPlantData.score,
+                    probability: currentPlantData.probability || 0,
                     sources: TRUSTED_SOURCES.map(source => ({
                         name: source.name,
-                        url: source.url(currentPlantData.species.scientificName)
+                        url: source.url(currentPlantData.name)
                     })),
                     status: 'pending'
                 };
@@ -814,28 +822,31 @@
                 savedPlants.unshift(plantToSave);
                 localStorage.setItem('savedPlants', JSON.stringify(savedPlants));
                 
-                // Guardar en Supabase
+                // ✅ GUARDAR EN SUPABASE USANDO BACKEND DE RENDER
                 const formData = new FormData();
                 formData.append('file', fileInput.files[0]);
-                formData.append('planta_id', currentPlantData.species.scientificName || 'planta-desconocida');
+                formData.append('planta_id', currentPlantData.name || 'planta-desconocida');
                 formData.append('nombre_usuario', 'usuario_web');
-                formData.append('description', `Planta identificada: ${currentPlantData.species.scientificName}`);
+                formData.append('description', `Planta identificada: ${currentPlantData.name}`);
                 
-                const response = await fetch('http://localhost:8002/upload', {
+                const response = await fetch(`${API_BASE}/upload`, {
                     method: 'POST',
                     body: formData
                 });
                 
                 if (!response.ok) {
-                    throw new Error('Error al guardar en Supabase');
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Error al guardar en Supabase');
                 }
                 
+                const result = await response.json();
                 showSuccess('¡Planta guardada correctamente en Supabase!');
                 
                 savePlantBtn.style.display = 'none';
                 
             } catch (error) {
                 showError('Error al guardar la planta: ' + error.message);
+                console.error('Error al guardar:', error);
             } finally {
                 savePlantBtn.disabled = false;
                 savePlantBtn.innerHTML = '<i class="fas fa-save"></i> Guardar en Mis Plantas';
