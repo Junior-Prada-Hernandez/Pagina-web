@@ -1,14 +1,12 @@
-// assets/js/identificador-plantas.js
+// assets/js/identificador-plantas.js - CORREGIDO
 
-// API Keys para uso directo en frontend (Render es estático)
+// ========== CONFIGURACIÓN ==========
+const API_BASE = 'https://pagina-web-2p69.onrender.com';
 const PLANT_ID_API_KEY = "2b10aLv6ZUTN4hwDcJ4I3dmu";
-const DEEPSEEK_API_KEY = "sk-93a2f73354c14faf8121c0bab5935598";
-
-// Variables globales para almacenar datos de la planta identificada
 let currentPlantData = null;
 let currentPlantImage = null;
 
-// Fuentes confiables para consultar información
+// Fuentes confiables
 const TRUSTED_SOURCES = [
     {
         name: "Buscar en navegador",
@@ -45,20 +43,18 @@ const savePlantBtn = document.getElementById('savePlantBtn');
 
 // ========== INICIALIZACIÓN ==========
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 Identificador de plantas inicializado');
+    console.log('🌐 Backend:', API_BASE);
     initializeEventListeners();
-    console.log('🚀 Identificador de plantas inicializado en Render');
-    console.log('✅ API Keys configuradas para entorno estático');
 });
 
 // ========== EVENT LISTENERS ==========
 function initializeEventListeners() {
-    // Eventos para el área de subida
     uploadArea.addEventListener('dragover', handleDragOver);
     uploadArea.addEventListener('dragleave', handleDragLeave);
     uploadArea.addEventListener('drop', handleDrop);
     fileInput.addEventListener('change', handleFileSelect);
     
-    // Click en el área de upload
     uploadArea.addEventListener('click', () => {
         fileInput.click();
     });
@@ -145,8 +141,8 @@ async function identifyPlant() {
     savePlantBtn.style.display = 'none';
     
     try {
-        // 1. Identificar la planta con Plant.id API
-        const plantIdData = await identifyWithPlantNet(fileInput.files[0]);
+        // 1. Identificar la planta con TU BACKEND (no directo a PlantNet)
+        const plantIdData = await identifyWithBackend(fileInput.files[0]);
         
         if (!plantIdData.results || plantIdData.results.length === 0) {
             throw new Error('No se pudo identificar la planta. Intenta con otra imagen más clara.');
@@ -175,20 +171,19 @@ async function identifyPlant() {
     }
 }
 
-// Función para identificar con PlantNet API
-async function identifyWithPlantNet(imageFile) {
+// Función para identificar con TU BACKEND
+async function identifyWithBackend(imageFile) {
     const formData = new FormData();
-    formData.append('organs', 'auto');
-    formData.append('images', imageFile);
+    formData.append('file', imageFile);
     
-    const response = await fetch(`https://my-api.plantnet.org/v2/identify/all?api-key=${PLANT_ID_API_KEY}`, {
+    const response = await fetch(`${API_BASE}/identify-plant`, {
         method: 'POST',
         body: formData
     });
     
     if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Error al conectar con el servicio de identificación');
+        throw new Error(errorData.detail || 'Error al conectar con el servicio de identificación');
     }
     
     return await response.json();
@@ -197,11 +192,10 @@ async function identifyWithPlantNet(imageFile) {
 // Función para obtener descripción de la planta
 async function getPlantDescription(plantName) {
     try {
-        // Para Render (entorno estático), usamos descripciones predefinidas
         return getPlantDescriptionFromLocal(plantName);
     } catch (error) {
         console.error('Error al obtener descripción:', error);
-        return await getDescriptionFromAlternativeSources(plantName);
+        return `Información recopilada de registros botánicos de la Cuenca Ubaté sobre ${plantName}.`;
     }
 }
 
@@ -236,11 +230,6 @@ function getPlantDescriptionFromLocal(plantName) {
     
     const plantInfo = plantKnowledge[plantName] || plantKnowledge['default'];
     return plantInfo.description;
-}
-
-// Función alternativa para obtener descripción
-async function getDescriptionFromAlternativeSources(plantName) {
-    return `Información recopilada de registros botánicos de la Cuenca Ubaté sobre ${plantName}. Los datos incluyen características observadas en especímenes de la región entre 2500-3500 metros sobre el nivel del mar.`;
 }
 
 // ========== MOSTRAR RESULTADOS ==========
@@ -308,9 +297,27 @@ async function saveWithoutIdentification() {
     saveWithoutIdentifyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
     
     try {
-        // Guardar en localStorage para acceso inmediato (solución para Render)
-        const savedPlants = JSON.parse(localStorage.getItem('savedPlants')) || [];
+        // ✅ GUARDAR EN EL BACKEND DE RENDER
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('planta_id', 'planta-sin-identificar');
+        formData.append('nombre_usuario', 'usuario_web');
+        formData.append('description', 'Planta sin identificar - guardada desde el identificador');
         
+        const response = await fetch(`${API_BASE}/upload`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Error al guardar en el servidor');
+        }
+        
+        const result = await response.json();
+        
+        // También guardar en localStorage para acceso inmediato
+        const savedPlants = JSON.parse(localStorage.getItem('savedPlants')) || [];
         const plantToSave = {
             id: Date.now(),
             name: 'Planta sin identificar',
@@ -320,14 +327,14 @@ async function saveWithoutIdentification() {
             dateSaved: new Date().toLocaleDateString('es-CO'),
             probability: 0,
             location: 'Cuenca Ubaté',
-            status: 'pendiente'
+            status: 'pendiente',
+            backend_id: result.id
         };
         
         savedPlants.unshift(plantToSave);
         localStorage.setItem('savedPlants', JSON.stringify(savedPlants));
         
-        // En Render no tenemos backend, así que mostramos éxito local
-        showSuccess('¡Planta guardada en tu colección local! Puedes verla en "Mis Plantas".');
+        showSuccess('¡Planta guardada correctamente en el servidor!');
         
         // Deshabilitar botón para evitar duplicados
         saveWithoutIdentifyBtn.disabled = true;
@@ -355,9 +362,27 @@ async function savePlant() {
     savePlantBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
     
     try {
-        // Guardar en localStorage (solución para entorno estático en Render)
-        const savedPlants = JSON.parse(localStorage.getItem('savedPlants')) || [];
+        // ✅ GUARDAR EN EL BACKEND DE RENDER
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('planta_id', currentPlantData.species.scientificName || 'planta-identificada');
+        formData.append('nombre_usuario', 'usuario_web');
+        formData.append('description', `Planta identificada: ${currentPlantData.species.scientificName} - ${currentPlantData.species.commonNames?.[0] || 'Sin nombre común'}`);
         
+        const response = await fetch(`${API_BASE}/upload`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Error al guardar en el servidor');
+        }
+        
+        const result = await response.json();
+        
+        // También guardar en localStorage
+        const savedPlants = JSON.parse(localStorage.getItem('savedPlants')) || [];
         const plantToSave = {
             id: Date.now(),
             name: currentPlantData.species.scientificName,
@@ -368,14 +393,14 @@ async function savePlant() {
             probability: currentPlantData.score,
             location: 'Cuenca Ubaté',
             description: document.querySelector('.details-content p').textContent,
-            status: 'identificada'
+            status: 'identificada',
+            backend_id: result.id
         };
         
         savedPlants.unshift(plantToSave);
         localStorage.setItem('savedPlants', JSON.stringify(savedPlants));
         
-        // Mostrar mensaje de éxito
-        showSuccess('¡Planta guardada en tu colección local! Puedes verla en "Mis Plantas".');
+        showSuccess('¡Planta identificada guardada en el servidor!');
         
         // Ocultar botón de guardado para evitar duplicados
         savePlantBtn.style.display = 'none';
@@ -434,10 +459,4 @@ function resetForm() {
     // Restaurar textos de botones
     saveWithoutIdentifyBtn.innerHTML = '<i class="fas fa-save"></i> Guardar sin identificar';
     savePlantBtn.innerHTML = '<i class="fas fa-save"></i> Guardar en Mis Plantas';
-}
-
-// Función para ver plantas guardadas
-function viewSavedPlants() {
-    // Redirigir a la página de plantas guardadas
-    window.location.href = 'plantas_guardadas.html';
 }
