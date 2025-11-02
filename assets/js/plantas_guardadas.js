@@ -2,13 +2,17 @@
  * =============================================
  * SCRIPT PARA PANEL DE ADMINISTRACIÓN
  * Plantas Guardadas - Cuenca Alta del Río Ubaté
+ * CON SUPABASE DIRECTO
  * =============================================
  */
 
 // =============================================
-// CONFIGURACIÓN GLOBAL
+// CONFIGURACIÓN GLOBAL - SUPABASE DIRECTO
 // =============================================
-const API_BASE = 'https://pagina-web-2p69.onrender.com';
+const supabaseUrl = 'https://arpartnlablfedsqxbsz.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFycGFydG5sYWJsZmVkc3F4YnN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxODU5MzQsImV4cCI6MjA2OTc2MTkzNH0.Vg5bkYt0ON_-WAM2-Ftq4x_i67yizI39FkGxuBWxTWs';
+const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
 let todasLasImagenes = [];
 let todosLosSuscriptores = [];
 
@@ -17,7 +21,7 @@ let todosLosSuscriptores = [];
 // =============================================
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🚀 Inicializando Panel de Administración...');
-    console.log('🌐 API Base:', API_BASE);
+    console.log('🌐 Conectado directamente a Supabase');
     inicializarEventListeners();
     cargarImagenes();
     cargarSuscriptores();
@@ -38,29 +42,27 @@ function inicializarEventListeners() {
 }
 
 // =============================================
-// GESTIÓN DE SUSCRIPTORES
+// GESTIÓN DE SUSCRIPTORES - SUPABASE DIRECTO
 // =============================================
 async function cargarSuscriptores() {
     try {
-        console.log('📧 Cargando suscriptores desde:', API_BASE + '/suscriptores');
-        const response = await fetch(API_BASE + '/suscriptores');
+        console.log('📧 Cargando suscriptores directamente desde Supabase...');
         
-        if (!response.ok) {
-            throw new Error('Error ' + response.status + ': ' + response.statusText);
+        const { data, error } = await supabase
+            .from('suscriptores')
+            .select('*')
+            .order('fecha_registro', { ascending: false });
+
+        if (error) {
+            throw new Error('Error Supabase: ' + error.message);
         }
+
+        console.log('📦 Suscriptores cargados:', data);
         
-        const data = await response.json();
-        console.log('📦 Datos de suscriptores:', data);
+        todosLosSuscriptores = data || [];
+        console.log('📧 Suscriptores cargados: ' + todosLosSuscriptores.length);
+        actualizarContadorSuscriptores();
         
-        if (data.success) {
-            todosLosSuscriptores = data.suscriptores || [];
-            console.log('📧 Suscriptores cargados: ' + todosLosSuscriptores.length);
-            actualizarContadorSuscriptores();
-        } else {
-            console.error('Error cargando suscriptores:', data.message);
-            todosLosSuscriptores = [];
-            actualizarContadorSuscriptores();
-        }
     } catch (error) {
         console.error('Error cargando suscriptores:', error);
         todosLosSuscriptores = [];
@@ -71,9 +73,7 @@ async function cargarSuscriptores() {
 
 function actualizarContadorSuscriptores() {
     const contador = document.getElementById('contadorSuscriptores');
-    const suscriptoresActivos = todosLosSuscriptores.filter(function(s) { 
-        return s.activo !== false; 
-    });
+    const suscriptoresActivos = todosLosSuscriptores.filter(s => s.activo !== false);
     contador.innerHTML = '<strong>' + suscriptoresActivos.length + ' suscriptores</strong> registrados';
 }
 
@@ -83,9 +83,7 @@ function gestionarSuscriptores() {
         return;
     }
 
-    const suscriptoresActivos = todosLosSuscriptores.filter(function(s) { 
-        return s.activo !== false; 
-    });
+    const suscriptoresActivos = todosLosSuscriptores.filter(s => s.activo !== false);
 
     let modalHTML = '';
     modalHTML += '<div class="modal fade" id="suscriptoresModal" tabindex="-1">';
@@ -107,7 +105,7 @@ function gestionarSuscriptores() {
     modalHTML += '<thead><tr><th>ID</th><th>Nombre</th><th>Email</th><th>Fecha Registro</th><th>Estado</th><th>Acciones</th></tr></thead>';
     modalHTML += '<tbody>';
 
-    suscriptoresActivos.forEach(function(suscriptor) {
+    suscriptoresActivos.forEach(suscriptor => {
         modalHTML += '<tr>';
         modalHTML += '<td>' + (suscriptor.id || 'N/A') + '</td>';
         modalHTML += '<td>' + (suscriptor.nombre || 'N/A') + '</td>';
@@ -141,28 +139,24 @@ async function eliminarSuscriptor(suscriptorId, nombre) {
     if (!confirm('¿Eliminar permanentemente a ' + nombre + ' de la base de datos?')) return;
 
     try {
-        const response = await fetch(API_BASE + '/eliminar-suscriptor/' + suscriptorId, {
-            method: 'DELETE'
-        });
-        
-        if (!response.ok) {
-            throw new Error('Error ' + response.status + ': ' + response.statusText);
+        const { error } = await supabase
+            .from('suscriptores')
+            .delete()
+            .eq('id', suscriptorId);
+
+        if (error) {
+            throw new Error('Error Supabase: ' + error.message);
         }
+
+        mostrarMensaje('Suscriptor ' + nombre + ' eliminado de Supabase', 'success');
+        await cargarSuscriptores();
         
-        const result = await response.json();
+        setTimeout(() => {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('suscriptoresModal'));
+            if (modal) modal.hide();
+            gestionarSuscriptores();
+        }, 1000);
         
-        if (result.success) {
-            mostrarMensaje('Suscriptor ' + nombre + ' eliminado de Supabase', 'success');
-            await cargarSuscriptores();
-            
-            setTimeout(function() {
-                const modal = bootstrap.Modal.getInstance(document.getElementById('suscriptoresModal'));
-                if (modal) modal.hide();
-                gestionarSuscriptores();
-            }, 1000);
-        } else {
-            throw new Error(result.message);
-        }
     } catch (error) {
         console.error('Error eliminando suscriptor:', error);
         mostrarMensaje('Error al eliminar suscriptor: ' + error.message, 'error');
@@ -170,9 +164,7 @@ async function eliminarSuscriptor(suscriptorId, nombre) {
 }
 
 async function eliminarTodosSuscriptores() {
-    const suscriptoresActivos = todosLosSuscriptores.filter(function(s) { 
-        return s.activo !== false; 
-    });
+    const suscriptoresActivos = todosLosSuscriptores.filter(s => s.activo !== false);
     
     if (suscriptoresActivos.length === 0) {
         mostrarMensaje('No hay suscriptores activos para eliminar', 'info');
@@ -187,20 +179,15 @@ async function eliminarTodosSuscriptores() {
         let eliminados = 0;
         let errores = 0;
         
-        for (let i = 0; i < suscriptoresActivos.length; i++) {
-            const suscriptor = suscriptoresActivos[i];
+        for (const suscriptor of suscriptoresActivos) {
             try {
-                const response = await fetch(API_BASE + '/eliminar-suscriptor/' + suscriptor.id, {
-                    method: 'DELETE'
-                });
+                const { error } = await supabase
+                    .from('suscriptores')
+                    .delete()
+                    .eq('id', suscriptor.id);
                 
-                if (response.ok) {
-                    const result = await response.json();
-                    if (result.success) {
-                        eliminados++;
-                    } else {
-                        errores++;
-                    }
+                if (!error) {
+                    eliminados++;
                 } else {
                     errores++;
                 }
@@ -231,9 +218,7 @@ async function eliminarTodosSuscriptores() {
 // NOTIFICACIONES
 // =============================================
 async function enviarNotificacionATodos() {
-    const suscriptoresActivos = todosLosSuscriptores.filter(function(s) { 
-        return s.activo !== false; 
-    });
+    const suscriptoresActivos = todosLosSuscriptores.filter(s => s.activo !== false);
     
     if (suscriptoresActivos.length === 0) {
         mostrarMensaje('No hay suscriptores activos para notificar', 'warning');
@@ -267,7 +252,7 @@ async function enviarNotificacionATodos() {
             exitosos++;
             
             actualizarProgresoNotificacion(progressToast, i + 1, suscriptoresActivos.length);
-            await new Promise(function(resolve) { return setTimeout(resolve, 800); });
+            await new Promise(resolve => setTimeout(resolve, 800));
             
         } catch (error) {
             console.error('❌ Error enviando a ' + suscriptor.email + ':', error);
@@ -284,24 +269,27 @@ async function enviarNotificacionATodos() {
 }
 
 // =============================================
-// GESTIÓN DE IMÁGENES - CORREGIDO
+// GESTIÓN DE IMÁGENES - SUPABASE DIRECTO
 // =============================================
 async function cargarImagenes() {
     mostrarLoading(true);
     
     try {
-        console.log('🔄 Cargando imágenes desde:', API_BASE + '/list-images');
-        const response = await fetch(API_BASE + '/list-images');
+        console.log('🔄 Cargando imágenes directamente desde Supabase...');
         
-        if (!response.ok) {
-            throw new Error('Error ' + response.status + ': ' + response.statusText);
+        const { data, error } = await supabase
+            .from('imagenes')
+            .select('*')
+            .order('fecha_subida', { ascending: false });
+
+        if (error) {
+            throw new Error('Error Supabase: ' + error.message);
         }
-        
-        const data = await response.json();
+
         console.log('📦 Datos recibidos:', data);
         
-        if (data.images && Array.isArray(data.images)) {
-            todasLasImagenes = data.images.map(function(imagen) {
+        if (data && Array.isArray(data)) {
+            todasLasImagenes = data.map(imagen => {
                 // Asegurar que todas las imágenes tengan URL válida
                 let url_imagen = imagen.url_imagen;
                 if (!url_imagen || url_imagen === '') {
@@ -348,9 +336,9 @@ function generarUrlPlaceholder(imagen) {
 
 function actualizarEstadisticas() {
     const total = todasLasImagenes.length;
-    const publicadas = todasLasImagenes.filter(function(img) { return img.estado === 'publicada'; }).length;
-    const pendientes = todasLasImagenes.filter(function(img) { return img.estado === 'pendiente'; }).length;
-    const rechazadas = todasLasImagenes.filter(function(img) { return img.estado === 'rechazada'; }).length;
+    const publicadas = todasLasImagenes.filter(img => img.estado === 'publicada').length;
+    const pendientes = todasLasImagenes.filter(img => img.estado === 'pendiente').length;
+    const rechazadas = todasLasImagenes.filter(img => img.estado === 'rechazada').length;
 
     document.getElementById('totalImagenes').textContent = total;
     document.getElementById('publicadasCount').textContent = publicadas;
@@ -363,14 +351,14 @@ function filtrarImagenes() {
     const estadoFiltro = document.getElementById('filterEstado').value;
     const sortOption = document.getElementById('sortSelect').value;
 
-    let imagenesFiltradas = todasLasImagenes.filter(function(imagen) {
+    let imagenesFiltradas = todasLasImagenes.filter(imagen => {
         const coincideBusqueda = (imagen.planta_id && imagen.planta_id.toLowerCase().includes(searchTerm)) || 
                                (imagen.description && imagen.description.toLowerCase().includes(searchTerm));
         const coincideEstado = estadoFiltro === 'todas' || imagen.estado === estadoFiltro;
         return coincideBusqueda && coincideEstado;
     });
 
-    imagenesFiltradas.sort(function(a, b) {
+    imagenesFiltradas.sort((a, b) => {
         return sortOption === 'nuevas' ? 
             new Date(b.fecha_subida) - new Date(a.fecha_subida) : 
             new Date(a.fecha_subida) - new Date(b.fecha_subida);
@@ -388,7 +376,7 @@ function mostrarImagenes(imagenes) {
     }
 
     let html = '';
-    imagenes.forEach(function(imagen) {
+    imagenes.forEach(imagen => {
         const titulo = imagen.planta_id || 'Sin título';
         const descripcion = imagen.description || 'Sin descripción';
         const usuario = imagen.nombre_usuario || 'Anónimo';
@@ -477,36 +465,32 @@ function verEnMapa(latitud, longitud, titulo) {
 }
 
 // =============================================
-// OPERACIONES CRUD DE IMÁGENES
+// OPERACIONES CRUD DE IMÁGENES - SUPABASE DIRECTO
 // =============================================
 async function cambiarEstado(imageId, nuevoEstado) {
     if (!confirm('¿Cambiar estado a "' + getEstadoTexto(nuevoEstado) + '"?')) return;
 
     try {
-        const response = await fetch(API_BASE + '/cambiar-estado/' + imageId + '?nuevo_estado=' + nuevoEstado, {
-            method: 'PUT'
-        });
+        const { error } = await supabase
+            .from('imagenes')
+            .update({ estado: nuevoEstado })
+            .eq('id', imageId);
+
+        if (error) {
+            throw new Error('Error Supabase: ' + error.message);
+        }
+
+        mostrarMensaje('Estado cambiado a ' + getEstadoTexto(nuevoEstado), 'success');
+        cargarImagenes();
         
-        if (!response.ok) {
-            throw new Error('Error ' + response.status + ': ' + response.statusText);
+        if (nuevoEstado === 'publicada') {
+            setTimeout(() => {
+                if (confirm('¿Quieres enviar una notificación a todos los suscriptores sobre esta nueva publicación?')) {
+                    enviarNotificacionATodos();
+                }
+            }, 1000);
         }
         
-        const result = await response.json();
-        
-        if (result.success) {
-            mostrarMensaje('Estado cambiado a ' + getEstadoTexto(nuevoEstado), 'success');
-            cargarImagenes();
-            
-            if (nuevoEstado === 'publicada') {
-                setTimeout(function() {
-                    if (confirm('¿Quieres enviar una notificación a todos los suscriptores sobre esta nueva publicación?')) {
-                        enviarNotificacionATodos();
-                    }
-                }, 1000);
-            }
-        } else {
-            throw new Error(result.message);
-        }
     } catch (error) {
         mostrarMensaje('Error al cambiar estado: ' + error.message, 'error');
     }
@@ -537,17 +521,20 @@ async function guardarEdicion() {
     }
 
     try {
-        let url = API_BASE + '/editar-imagen/' + id + '?nuevo_nombre=' + encodeURIComponent(nuevoTitulo) + 
-                  '&nueva_descripcion=' + encodeURIComponent(nuevaDescripcion) + 
-                  '&tipo_publicacion=' + encodeURIComponent(tipoPublicacion);
+        const updateData = {
+            planta_id: nuevoTitulo,
+            description: nuevaDescripcion,
+            tipo_publicacion: tipoPublicacion
+        };
         
+        // Agregar coordenadas solo si son válidas
         if (nuevaLatitud) {
             const latNum = parseFloat(nuevaLatitud);
             if (isNaN(latNum)) {
                 mostrarMensaje('La latitud debe ser un número válido', 'error');
                 return;
             }
-            url += '&nueva_lat=' + latNum;
+            updateData.lat = latNum;
         }
         
         if (nuevaLongitud) {
@@ -556,27 +543,22 @@ async function guardarEdicion() {
                 mostrarMensaje('La longitud debe ser un número válido', 'error');
                 return;
             }
-            url += '&nueva_lng=' + lngNum;
+            updateData.lng = lngNum;
         }
 
-        console.log('🔧 URL de edición:', url);
+        const { error } = await supabase
+            .from('imagenes')
+            .update(updateData)
+            .eq('id', id);
 
-        const response = await fetch(url, { method: 'PUT' });
-        
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error('Error ' + response.status + ': ' + errorText);
+        if (error) {
+            throw new Error('Error Supabase: ' + error.message);
         }
+
+        mostrarMensaje('Imagen actualizada correctamente', 'success');
+        bootstrap.Modal.getInstance(document.getElementById('editarModal')).hide();
+        cargarImagenes();
         
-        const result = await response.json();
-        
-        if (result.success) {
-            mostrarMensaje('Imagen actualizada correctamente', 'success');
-            bootstrap.Modal.getInstance(document.getElementById('editarModal')).hide();
-            cargarImagenes();
-        } else {
-            throw new Error(result.message || 'Error desconocido');
-        }
     } catch (error) {
         console.error('❌ Error al editar:', error);
         mostrarMensaje('Error al editar la imagen: ' + error.message, 'error');
@@ -587,20 +569,41 @@ async function eliminarImagen(id) {
     if (!confirm('¿Eliminar esta imagen permanentemente?')) return;
 
     try {
-        const response = await fetch(API_BASE + '/delete-image/' + id, {method: 'DELETE'});
-        
-        if (!response.ok) {
-            throw new Error('Error ' + response.status + ': ' + response.statusText);
+        // Primero obtener la información de la imagen para eliminar el archivo
+        const { data: imagen, error: fetchError } = await supabase
+            .from('imagenes')
+            .select('filename')
+            .eq('id', id)
+            .single();
+
+        if (fetchError) {
+            throw new Error('Error obteniendo imagen: ' + fetchError.message);
         }
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            mostrarMensaje('Imagen eliminada', 'success');
-            cargarImagenes();
-        } else {
-            throw new Error(result.message);
+
+        // Eliminar de Supabase Storage si existe filename
+        if (imagen.filename) {
+            const { error: storageError } = await supabase.storage
+                .from('images')
+                .remove([`public/${imagen.filename}`]);
+            
+            if (storageError) {
+                console.warn('⚠️ No se pudo eliminar el archivo de storage:', storageError);
+            }
         }
+
+        // Eliminar de la base de datos
+        const { error: deleteError } = await supabase
+            .from('imagenes')
+            .delete()
+            .eq('id', id);
+
+        if (deleteError) {
+            throw new Error('Error eliminando imagen: ' + deleteError.message);
+        }
+
+        mostrarMensaje('Imagen eliminada correctamente', 'success');
+        cargarImagenes();
+        
     } catch (error) {
         mostrarMensaje('Error al eliminar: ' + error.message, 'error');
     }
@@ -705,7 +708,7 @@ function actualizarProgresoNotificacion(toast, actual, total) {
 }
 
 function cerrarProgresoNotificacion(toast) {
-    setTimeout(function() {
+    setTimeout(() => {
         if (toast.parentNode) {
             toast.parentNode.removeChild(toast);
         }
