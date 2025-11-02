@@ -2,9 +2,9 @@
 
 const API_BASE = 'https://pagina-web-2p69.onrender.com';
 
-// Variables para las API keys (se obtendrán del backend)
-let PLANT_ID_API_KEY = null;
-let DEEPSEEK_API_KEY = null;
+// 🔥 API KEYS DIRECTAS PARA RENDER
+const PLANT_ID_API_KEY = '2b10aLv6ZUTN4hwDcJ4I3dmu';
+const DEEPSEEK_API_KEY = 'sk-93a2f73354c14faf8121c0bab5935598';
 
 // Variables globales para almacenar datos de la planta identificada
 let currentPlantData = null;
@@ -49,36 +49,12 @@ const savePlantBtn = document.getElementById('savePlantBtn');
 document.addEventListener('DOMContentLoaded', async function() {
     localStorage.clear();
     
-    // Obtener las API keys del backend antes de inicializar
-    await obtenerApiKeysDelBackend();
+    console.log('🚀 Identificador de plantas inicializado para Render');
+    console.log('🔑 PlantNet API Key configurada:', PLANT_ID_API_KEY ? '✅' : '❌');
+    console.log('🤖 DeepSeek API Key configurada:', DEEPSEEK_API_KEY ? '✅' : '❌');
     
     initializeEventListeners();
-    console.log('🚀 Identificador de plantas inicializado para Render');
 });
-
-// ========== OBTENER API KEYS DEL BACKEND ==========
-async function obtenerApiKeysDelBackend() {
-    try {
-        // ✅ CORREGIDO - Usar API_BASE sin puerto
-        const response = await fetch(`${API_BASE}/api/keys`);
-        
-        if (!response.ok) {
-            throw new Error('Error al obtener API keys del backend');
-        }
-        
-        const keys = await response.json();
-        
-        // Asignar las API keys obtenidas del backend
-        PLANT_ID_API_KEY = keys.PLANT_ID_API_KEY;
-        DEEPSEEK_API_KEY = keys.DEEPSEEK_API_KEY;
-        
-        console.log('✅ API keys cargadas correctamente desde el backend en Render');
-        
-    } catch (error) {
-        console.error('❌ Error cargando API keys:', error);
-        showError('Error de configuración. Por favor, recarga la página.');
-    }
-}
 
 // ========== EVENT LISTENERS ==========
 function initializeEventListeners() {
@@ -155,9 +131,11 @@ async function identifyPlant() {
     savePlantBtn.style.display = 'none';
     
     try {
-        // ✅ CORREGIDO - Usar tu backend en Render para identificación
+        // ✅ OPCIÓN 1: Usar tu backend en Render para identificación (RECOMENDADO)
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
+        
+        console.log('🔍 Enviando imagen para identificación...');
         
         const response = await fetch(`${API_BASE}/identify-plant`, {
             method: 'POST',
@@ -179,6 +157,8 @@ async function identifyPlant() {
         currentPlantData = bestMatch;
         const scientificName = bestMatch.species.scientificName || 'Planta desconocida';
         
+        console.log('✅ Planta identificada:', scientificName);
+        
         // 2. Obtener descripción de la planta
         const description = await getPlantDescription(scientificName);
         
@@ -189,8 +169,15 @@ async function identifyPlant() {
         savePlantBtn.style.display = 'inline-flex';
         
     } catch (error) {
-        showError(error.message);
-        console.error('Error en identificación:', error);
+        console.error('❌ Error en identificación:', error);
+        
+        // ✅ OPCIÓN 2: Fallback - usar API directa si el backend falla
+        if (error.message.includes('backend') || error.message.includes('conexión')) {
+            console.log('🔄 Intentando identificación directa con PlantNet API...');
+            await identifyPlantDirect();
+        } else {
+            showError(error.message);
+        }
     } finally {
         loading.style.display = 'none';
         identifyBtn.disabled = false;
@@ -198,31 +185,133 @@ async function identifyPlant() {
     }
 }
 
-// Función para obtener descripción de la planta
+// ✅ OPCIÓN DE FALLBACK: Identificación directa con PlantNet API
+async function identifyPlantDirect() {
+    try {
+        const file = fileInput.files[0];
+        const formData = new FormData();
+        formData.append('images', file);
+        formData.append('organs', 'auto');
+        
+        console.log('🔍 Identificación directa con PlantNet API...');
+        
+        const response = await fetch(`https://my-api.plantnet.org/v2/identify/all?api-key=${PLANT_ID_API_KEY}`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Error en PlantNet API');
+        }
+        
+        const plantIdData = await response.json();
+        
+        if (!plantIdData.results || plantIdData.results.length === 0) {
+            throw new Error('No se pudo identificar la planta. Intenta con otra imagen más clara.');
+        }
+        
+        const bestMatch = plantIdData.results[0];
+        currentPlantData = bestMatch;
+        const scientificName = bestMatch.species.scientificName || 'Planta desconocida';
+        
+        console.log('✅ Planta identificada (directo):', scientificName);
+        
+        // Obtener descripción de la planta
+        const description = await getPlantDescription(scientificName);
+        
+        // Mostrar resultados
+        displayResults(bestMatch, description);
+        
+        // Mostrar botón para guardar la planta
+        savePlantBtn.style.display = 'inline-flex';
+        
+    } catch (error) {
+        showError('Error en identificación: ' + error.message);
+        console.error('❌ Error en identificación directa:', error);
+    }
+}
+
+// Función para obtener descripción de la planta usando DeepSeek API
 async function getPlantDescription(plantName) {
     try {
-        return simulateDeepSeekResponse(plantName);
+        // ✅ Usar DeepSeek API para obtener descripción detallada
+        if (DEEPSEEK_API_KEY && plantName !== 'Planta desconocida') {
+            return await getDescriptionFromDeepSeek(plantName);
+        } else {
+            return simulateDeepSeekResponse(plantName);
+        }
     } catch (error) {
         console.error('Error al obtener descripción:', error);
         return await getDescriptionFromAlternativeSources(plantName);
     }
 }
 
-// Base de conocimiento simulada
+// ✅ FUNCIÓN MEJORADA: Obtener descripción de DeepSeek API
+async function getDescriptionFromDeepSeek(plantName) {
+    try {
+        const response = await fetch('https://api.deepseek.com/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'Eres un botánico experto especializado en la flora de la Cuenca Alta del Río Ubaté en Colombia. Proporciona descripciones concisas (150-200 palabras) con información relevante sobre plantas de esta región.'
+                    },
+                    {
+                        role: 'user',
+                        content: `Proporciona una descripción concisa (150-200 palabras) sobre la planta "${plantName}" enfocándote en su presencia en la Cuenca Alta del Río Ubaté, Colombia. Incluye características morfológicas, hábitat, importancia ecológica y cualquier dato específico de la región.`
+                    }
+                ],
+                max_tokens: 500,
+                temperature: 0.7
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Error en DeepSeek API');
+        }
+
+        const data = await response.json();
+        return data.choices[0].message.content;
+        
+    } catch (error) {
+        console.error('Error con DeepSeek API:', error);
+        // Fallback a la base de conocimiento simulada
+        return simulateDeepSeekResponse(plantName);
+    }
+}
+
+// Base de conocimiento simulada (fallback)
 function simulateDeepSeekResponse(plantName) {
     const plantKnowledge = {
-        "Quercus humboldtii": "El roble andino (Quercus humboldtii) es una especie endémica de los Andes, común en la Cuenca Ubaté. Árbol de hasta 25 m de altura, con hojas coriáceas y bordes aserrados. Especie clave en los bosques altoandinos de la región.",
-        "Espeletia spp": "Conocidas como frailejones, son plantas emblemáticas de los páramos de la Cuenca Ubaté. Crecen lentamente (1-2 cm/año) y son fundamentales para la captación de agua en la región.",
-        "Polylepis spp": "Conocidos como árboles de papel, forman bosques en alturas extremas en la Cuenca Ubaté. Especies importantes para la conservación del ecosistema paramuno.",
-        "default": `Descripción de ${plantName} en la Cuenca Ubaté. Esta planta presenta características típicas de la flora regional, con adaptaciones específicas al clima y altitud de la zona. Su presencia contribuye a la biodiversidad local.`
+        "Quercus humboldtii": "El roble andino (Quercus humboldtii) es una especie endémica de los Andes, común en la Cuenca Ubaté. Árbol de hasta 25 m de altura, con hojas coriáceas y bordes aserrados. Especie clave en los bosques altoandinos de la región, proporciona hábitat para fauna local y contribuye a la regulación hídrica.",
+        "Espeletia spp": "Conocidas como frailejones, son plantas emblemáticas de los páramos de la Cuenca Ubaté. Crecen lentamente (1-2 cm/año) y son fundamentales para la captación de agua en la región. Sus hojas lanosas las protegen de las bajas temperaturas nocturnas.",
+        "Polylepis spp": "Conocidos como árboles de papel, forman bosques en alturas extremas en la Cuenca Ubaté. Su corteza se desprende en láminas delgadas. Especies importantes para la conservación del ecosistema paramuno y refugio de aves endémicas.",
+        "Weinmannia spp": "Arbustos o árboles pequeños comunes en los bosques de la Cuenca Ubaté. Hojas compuestas con bordes aserrados, importantes en la sucesión ecológica de la región.",
+        "Baccharis spp": "Arbustos comunes en zonas perturbadas de la Cuenca Ubaté. Especies pioneras que ayudan en la recuperación de suelos degradados.",
+        "Miconia spp": "Arbustos con hojas grandes y aterciopeladas, comunes en el sotobosque de la Cuenca Ubaté. Importantes para la fauna polinizadora local.",
+        "default": `${plantName} - Especie vegetal presente en la Cuenca Alta del Río Ubaté. Esta planta presenta adaptaciones específicas al clima montañoso de la región, contribuyendo a la biodiversidad local y a los servicios ecosistémicos del área. Su conservación es importante para el equilibrio ecológico de la cuenca.`
     };
     
-    return plantKnowledge[plantName] || plantKnowledge['default'];
+    // Buscar coincidencia parcial para nombres científicos similares
+    for (const key in plantKnowledge) {
+        if (plantName.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(plantName.toLowerCase())) {
+            return plantKnowledge[key];
+        }
+    }
+    
+    return plantKnowledge['default'];
 }
 
 // Función alternativa para obtener descripción
 async function getDescriptionFromAlternativeSources(plantName) {
-    return `Información recopilada de registros botánicos de la Cuenca Ubaté sobre ${plantName}. Los datos incluyen características observadas en especímenes de la región.`;
+    return `Información recopilada de registros botánicos de la Cuenca Ubaté sobre ${plantName}. Los datos incluyen características observadas en especímenes de la región y su importancia para el ecosistema local.`;
 }
 
 // ========== MOSTRAR RESULTADOS ==========
@@ -234,7 +323,7 @@ function displayResults(plantData, description) {
     probability.textContent = `Confianza: ${(plantData.score * 100).toFixed(1)}%`;
     
     // Mostrar nombres comunes
-    if (plantData.species.commonNames) {
+    if (plantData.species.commonNames && plantData.species.commonNames.length > 0) {
         commonNamesText.textContent = plantData.species.commonNames.join(', ');
     } else {
         commonNamesText.textContent = 'No se encontraron nombres comunes';
@@ -244,6 +333,7 @@ function displayResults(plantData, description) {
     plantDetails.innerHTML = '';
     const descriptionElement = document.createElement('p');
     descriptionElement.textContent = description;
+    descriptionElement.style.lineHeight = '1.6';
     plantDetails.appendChild(descriptionElement);
     
     // Mostrar fuentes confiables
@@ -263,6 +353,7 @@ function displaySourceLinks(plantName) {
         link.textContent = source.name;
         link.className = 'source-link';
         link.target = '_blank';
+        link.rel = 'noopener noreferrer';
         sourceLinks.appendChild(link);
     });
 }
@@ -296,12 +387,14 @@ async function saveWithoutIdentification() {
         savedPlants.unshift(plantToSave);
         localStorage.setItem('savedPlants', JSON.stringify(savedPlants));
         
-        // ✅ CORREGIDO - Guardar en Supabase usando tu backend en Render
+        // ✅ Guardar en Supabase usando tu backend en Render
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         formData.append('planta_id', 'planta-sin-identificar');
         formData.append('nombre_usuario', 'usuario_web');
         formData.append('description', 'Planta sin identificar - guardada desde la galería');
+        
+        console.log('💾 Guardando planta sin identificar en Supabase...');
         
         const response = await fetch(`${API_BASE}/upload`, {
             method: 'POST',
@@ -314,9 +407,15 @@ async function saveWithoutIdentification() {
         }
         
         const result = await response.json();
+        console.log('✅ Planta guardada en Supabase:', result);
         
         // Mostrar mensaje de éxito
-        showSuccess('¡Imagen guardada correctamente en Supabase! La imagen se ha almacenado exitosamente.');
+        showSuccess('¡Imagen guardada correctamente en Supabase! La imagen se ha almacenado exitosamente y está pendiente de revisión.');
+        
+        // Limpiar formulario después de guardar
+        setTimeout(() => {
+            resetForm();
+        }, 3000);
         
     } catch (error) {
         showError('Error al guardar la imagen: ' + error.message);
@@ -360,12 +459,14 @@ async function savePlant() {
         savedPlants.unshift(plantToSave);
         localStorage.setItem('savedPlants', JSON.stringify(savedPlants));
         
-        // ✅ CORREGIDO - Guardar en Supabase usando tu backend en Render
+        // ✅ Guardar en Supabase usando tu backend en Render
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         formData.append('planta_id', currentPlantData.species.scientificName || 'planta-desconocida');
         formData.append('nombre_usuario', 'usuario_web');
-        formData.append('description', `Planta identificada: ${currentPlantData.species.scientificName}`);
+        formData.append('description', `Planta identificada: ${currentPlantData.species.scientificName}. Probabilidad: ${(currentPlantData.score * 100).toFixed(1)}%`);
+        
+        console.log('💾 Guardando planta identificada en Supabase...');
         
         const response = await fetch(`${API_BASE}/upload`, {
             method: 'POST',
@@ -378,12 +479,18 @@ async function savePlant() {
         }
         
         const result = await response.json();
+        console.log('✅ Planta identificada guardada en Supabase:', result);
         
         // Mostrar mensaje de éxito
-        showSuccess('¡Planta guardada correctamente en Supabase! La imagen y los datos se han almacenado exitosamente.');
+        showSuccess('¡Planta guardada correctamente en Supabase! La imagen y los datos se han almacenado exitosamente y están pendientes de revisión.');
         
         // Ocultar botón de guardado para evitar duplicados
         savePlantBtn.style.display = 'none';
+        
+        // Limpiar formulario después de guardar
+        setTimeout(() => {
+            resetForm();
+        }, 3000);
         
     } catch (error) {
         showError('Error al guardar la planta: ' + error.message);
@@ -424,6 +531,7 @@ function showSuccess(message) {
 function resetForm() {
     fileInput.value = '';
     previewImage.style.display = 'none';
+    previewImage.src = '';
     identifyBtn.disabled = true;
     saveWithoutIdentifyBtn.disabled = true;
     resultContainer.style.display = 'none';
@@ -433,5 +541,9 @@ function resetForm() {
     savePlantBtn.style.display = 'none';
     currentPlantData = null;
     currentPlantImage = null;
+    
+    // Restaurar texto original de botones
+    identifyBtn.innerHTML = '<i class="fas fa-search"></i> Identificar Planta';
+    saveWithoutIdentifyBtn.innerHTML = '<i class="fas fa-save"></i> Guardar sin identificar';
+    savePlantBtn.innerHTML = '<i class="fas fa-save"></i> Guardar en Mis Plantas';
 }
-
